@@ -2,13 +2,22 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const TOKEN_KEY = 'auth_token';
 
-type User = { id: string; email: string; name: string; role: 'user' | 'admin' } | null;
+export type UserRole = 'user' | 'business_admin' | 'platform_admin';
+
+type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  businessId?: string | null;
+  businessName?: string;
+} | null;
 
 interface AuthContextValue {
   user: User;
   token: string | null;
   loading: boolean;
-  login: (token: string, user: User) => void;
+  login: (token: string, user: NonNullable<User>) => void;
   logout: () => void;
   setUser: (user: User) => void;
 }
@@ -22,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setUser = useCallback((u: User) => setUserState(u), []);
 
-  const login = useCallback((newToken: string, newUser: User) => {
+  const login = useCallback((newToken: string, newUser: NonNullable<User>) => {
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
     setUserState(newUser);
@@ -47,7 +56,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error('Invalid session');
         return res.json();
       })
-      .then((data) => setUserState({ id: data.id, email: data.email, name: data.name || '', role: data.role }))
+      .then((data) =>
+        setUserState({
+          id: data.id,
+          email: data.email,
+          name: data.name || '',
+          role: data.role as UserRole,
+          businessId: data.businessId,
+          businessName: data.businessName,
+        })
+      )
       .catch(() => {
         localStorage.removeItem(TOKEN_KEY);
         setToken(null);

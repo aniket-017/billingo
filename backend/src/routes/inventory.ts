@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import mongoose from 'mongoose';
-import { StockMovement } from '../models/StockMovement.js';
-import { Product } from '../models/Product.js';
-import { authMiddleware, AuthPayload } from '../middleware/auth.js';
+import { authMiddleware, AuthPayload, tenantMiddleware } from '../middleware/auth.js';
+import { getTenant, getTenantDb } from '../middleware/tenant.js';
 import {
   applyMovement,
   applyAdjustment,
@@ -12,7 +10,10 @@ import {
 
 const router = Router();
 
-router.use(authMiddleware);
+router.use(authMiddleware, tenantMiddleware);
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function getUser(req: { user?: AuthPayload }): AuthPayload | undefined {
   return req.user;
@@ -29,37 +30,27 @@ router.get('/movements', async (req, res) => {
     const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
     const pageSize = Number.isFinite(limit) && limit > 0 && limit <= 200 ? limit : 50;
 
-    const filter: Record<string, unknown> = {};
-    if (productId && mongoose.isValidObjectId(productId)) {
-      filter.productId = productId;
-    }
-    if (type) filter.type = type;
-    if (from || to) {
-      filter.date = {};
-      if (from) (filter.date as Record<string, Date>).$gte = new Date(from);
-      if (to) {
-        const toDate = new Date(to);
-        toDate.setHours(23, 59, 59, 999);
-        (filter.date as Record<string, Date>).$lte = toDate;
-      }
+    let toDate: Date | undefined;
+    if (to) {
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
     }
 
-    const [items, total] = await Promise.all([
-      StockMovement.find(filter)
-        .populate('productId', 'name barcode unit')
-        .sort({ date: -1, createdAt: -1 })
-        .skip((pageNumber - 1) * pageSize)
-        .limit(pageSize)
-        .lean(),
-      StockMovement.countDocuments(filter),
-    ]);
-
-    res.json({
-      items,
-      total,
+    const result = await getTenantDb(req).listMovements({
+      productId: productId && UUID_RE.test(productId) ? productId : undefined,
+      from: from ? new Date(from) : undefined,
+      to: toDate,
+      type,
       page: pageNumber,
       pageSize,
-      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
+
+    res.json({
+      items: result.items,
+      total: result.total,
+      page: pageNumber,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
     });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -68,26 +59,24 @@ router.get('/movements', async (req, res) => {
 
 router.get('/movements/product/:productId', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.productId)) {
+    if (!UUID_RE.test(req.params.productId)) {
       return res.status(400).json({ error: 'Invalid product id' });
     }
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
-    const filter: Record<string, unknown> = { productId: req.params.productId };
-    if (from || to) {
-      filter.date = {};
-      if (from) (filter.date as Record<string, Date>).$gte = new Date(from);
-      if (to) {
-        const toDate = new Date(to);
-        toDate.setHours(23, 59, 59, 999);
-        (filter.date as Record<string, Date>).$lte = toDate;
-      }
+    let toDate: Date | undefined;
+    if (to) {
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
     }
-    const items = await StockMovement.find(filter)
-      .sort({ date: -1, createdAt: -1 })
-      .limit(200)
-      .lean();
-    res.json(items);
+    const result = await getTenantDb(req).listMovements({
+      productId: req.params.productId,
+      from: from ? new Date(from) : undefined,
+      to: toDate,
+      page: 1,
+      pageSize: 200,
+    });
+    res.json(result.items);
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
@@ -105,7 +94,7 @@ router.post('/stock-in', async (req, res) => {
     if (!productId || quantity == null) {
       return res.status(400).json({ error: 'productId and quantity are required' });
     }
-    const result = await applyMovement({
+    const result = await applyMovement(getTenant(req).schemaName, {
       productId,
       type: 'STOCK_IN',
       quantity: Number(quantity),
@@ -134,7 +123,7 @@ router.post('/adjust', async (req, res) => {
     if (!productId || quantityDelta == null) {
       return res.status(400).json({ error: 'productId and quantityDelta are required' });
     }
-    const result = await applyAdjustment({
+    const result = await applyAdjustment(getTenant(req).schemaName, {
       productId,
       quantityDelta: Number(quantityDelta),
       date: date ? new Date(date) : undefined,
@@ -153,13 +142,7 @@ router.post('/adjust', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const q = (req.query.q as string) || '';
-    const filter = q
-      ? { $or: [{ name: new RegExp(q, 'i') }, { barcode: new RegExp(q, 'i') }] }
-      : {};
-    const products = await Product.find(filter)
-      .select('barcode name price unit quantityOnHand reorderLevel costPrice')
-      .sort({ name: 1 })
-      .lean();
+    const products = await getTenantDb(req).listProducts(q);
 
     const items = products.map((p) => ({
       ...p,
@@ -184,14 +167,7 @@ router.get('/summary', async (req, res) => {
 
 router.get('/low-stock', async (req, res) => {
   try {
-    const products = await Product.find({
-      reorderLevel: { $gt: 0 },
-      $expr: { $lte: ['$quantityOnHand', '$reorderLevel'] },
-    })
-      .select('barcode name price unit quantityOnHand reorderLevel costPrice')
-      .sort({ quantityOnHand: 1 })
-      .lean();
-
+    const products = await getTenantDb(req).lowStockProducts();
     res.json(
       products.map((p) => ({
         ...p,

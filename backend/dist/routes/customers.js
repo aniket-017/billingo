@@ -1,19 +1,12 @@
 import { Router } from 'express';
-import { Customer } from '../models/Customer.js';
+import { authMiddleware, tenantMiddleware } from '../middleware/auth.js';
+import { getTenantDb } from '../middleware/tenant.js';
 const router = Router();
+router.use(authMiddleware, tenantMiddleware);
 router.get('/', async (req, res) => {
     try {
         const q = req.query.q?.trim() || '';
-        const filter = q
-            ? {
-                $or: [
-                    { name: new RegExp(q, 'i') },
-                    { phone: new RegExp(q, 'i') },
-                    { email: new RegExp(q, 'i') },
-                ],
-            }
-            : {};
-        const customers = await Customer.find(filter).sort({ createdAt: -1 }).lean();
+        const customers = await getTenantDb(req).listCustomers(q);
         res.json(customers);
     }
     catch (e) {
@@ -22,7 +15,7 @@ router.get('/', async (req, res) => {
 });
 router.get('/:id', async (req, res) => {
     try {
-        const customer = await Customer.findById(req.params.id).lean();
+        const customer = await getTenantDb(req).getCustomer(req.params.id);
         if (!customer)
             return res.status(404).json({ error: 'Customer not found' });
         res.json(customer);
@@ -36,7 +29,7 @@ router.post('/', async (req, res) => {
         const { name, phone, email, address } = req.body;
         if (!name)
             return res.status(400).json({ error: 'name is required' });
-        const customer = await Customer.create({
+        const customer = await getTenantDb(req).createCustomer({
             name: String(name).trim(),
             phone: phone || '',
             email: email || '',
@@ -51,16 +44,12 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
     try {
         const { name, phone, email, address } = req.body;
-        const update = {};
-        if (name !== undefined)
-            update.name = String(name).trim();
-        if (phone !== undefined)
-            update.phone = phone;
-        if (email !== undefined)
-            update.email = email;
-        if (address !== undefined)
-            update.address = address;
-        const customer = await Customer.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
+        const customer = await getTenantDb(req).updateCustomer(req.params.id, {
+            ...(name !== undefined && { name: String(name).trim() }),
+            ...(phone !== undefined && { phone }),
+            ...(email !== undefined && { email }),
+            ...(address !== undefined && { address }),
+        });
         if (!customer)
             return res.status(404).json({ error: 'Customer not found' });
         res.json(customer);
@@ -71,8 +60,8 @@ router.put('/:id', async (req, res) => {
 });
 router.delete('/:id', async (req, res) => {
     try {
-        const result = await Customer.findByIdAndDelete(req.params.id);
-        if (!result)
+        const ok = await getTenantDb(req).deleteCustomer(req.params.id);
+        if (!ok)
             return res.status(404).json({ error: 'Customer not found' });
         res.status(204).send();
     }

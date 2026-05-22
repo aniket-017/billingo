@@ -4,7 +4,7 @@ import { api } from '../api/client';
 
 type Report = {
   summary: { totalSales: number; count: number };
-  byDay: { _id: string; total: number; count: number }[];
+  byDay: { day: string; total: number; count: number }[];
 };
 
 type InventoryReport = Awaited<ReturnType<typeof api.reports.inventory>>;
@@ -35,7 +35,7 @@ export default function Reports() {
   const exportCsv = () => {
     if (!data) return;
     const headers = ['Date', 'Invoices', 'Total'];
-    const rows = data.byDay.map((d) => [d._id, d.count, d.total.toFixed(2)]);
+    const rows = data.byDay.map((d) => [d.day, d.count, d.total.toFixed(2)]);
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -99,8 +99,8 @@ export default function Reports() {
                 </thead>
                 <tbody>
                   {data.byDay.map((d) => (
-                    <tr key={d._id}>
-                      <td>{d._id}</td>
+                    <tr key={d.day}>
+                      <td>{d.day}</td>
                       <td className="text-right">{d.count}</td>
                       <td className="text-right font-medium">{d.total.toFixed(2)}</td>
                     </tr>
@@ -147,8 +147,8 @@ export default function Reports() {
                 <p className="mb-2 text-sm font-medium text-slate-600">Movements in date range</p>
                 <div className="flex flex-wrap gap-3">
                   {inventoryData.movementSummary.map((m) => (
-                    <span key={m._id} className="rounded-lg bg-slate-100 px-3 py-1 text-sm text-slate-700">
-                      {m._id}: {m.totalQuantity} units ({m.count} entries)
+                    <span key={m.type} className="rounded-lg bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                      {m.type}: {m.totalQuantity} units ({m.count} entries)
                     </span>
                   ))}
                 </div>
@@ -168,7 +168,7 @@ export default function Reports() {
                     .filter((p) => p.status !== 'in_stock')
                     .slice(0, 20)
                     .map((p) => (
-                      <tr key={p._id}>
+                      <tr key={p.id}>
                         <td>{p.name}</td>
                         <td className="text-right">{p.quantityOnHand}</td>
                         <td>

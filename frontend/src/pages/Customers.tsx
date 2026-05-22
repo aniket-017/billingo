@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import Toast from '../components/Toast';
 
-type Customer = { _id: string; name: string; phone: string; email: string; address: string };
+type Customer = { id: string; name: string; phone: string; email: string; address: string };
 
 export default function Customers() {
   const [list, setList] = useState<Customer[]>([]);
@@ -45,7 +45,7 @@ export default function Customers() {
     }
     try {
       if (editing) {
-        await api.customers.update(editing._id, form);
+        await api.customers.update(editing.id, form);
         setToast({ message: 'Customer updated', type: 'success' });
       } else {
         await api.customers.create(form);
@@ -101,7 +101,7 @@ export default function Customers() {
               </thead>
               <tbody>
                 {list.map((c) => (
-                  <tr key={c._id}>
+                  <tr key={c.id}>
                     <td>{c.name}</td>
                     <td>{c.phone || '—'}</td>
                     <td>{c.email || '—'}</td>
@@ -109,7 +109,7 @@ export default function Customers() {
                       <button type="button" onClick={() => openEdit(c)} className="btn-ghost text-sm">
                         Edit
                       </button>
-                      <button type="button" onClick={() => deleteCustomer(c._id)} className="btn-ghost text-red-600 text-sm">
+                      <button type="button" onClick={() => deleteCustomer(c.id)} className="btn-ghost text-red-600 text-sm">
                         Delete
                       </button>
                     </td>

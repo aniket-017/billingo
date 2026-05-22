@@ -1,7 +1,6 @@
-import mongoose from 'mongoose';
-import { Product } from '../models/Product.js';
-import { StockMovement, StockMovementType } from '../models/StockMovement.js';
 import type { AuthPayload } from '../middleware/auth.js';
+import { createTenantDb } from '../db/tenant.js';
+import type { StockMovementType } from '../types/tenant.js';
 
 export class InsufficientStockError extends Error {
   constructor(
@@ -20,7 +19,7 @@ const OUT_TYPES: StockMovementType[] = ['SALE'];
 
 export interface MovementReference {
   referenceType?: string;
-  referenceId?: mongoose.Types.ObjectId | string | null | undefined;
+  referenceId?: string | null;
   referenceLabel?: string;
 }
 
@@ -46,42 +45,42 @@ function movementDelta(type: StockMovementType, quantity: number): number {
   return quantity;
 }
 
-export async function applyMovement(input: ApplyMovementInput) {
+export async function applyMovement(schemaName: string, input: ApplyMovementInput) {
+  const db = createTenantDb(schemaName);
   const { productId, type, quantity, date, reference, notes, user } = input;
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Error('quantity must be a positive number');
   }
 
   const delta = movementDelta(type, quantity);
-  const movementDate = date ?? new Date();
+  const existing = await db.getProduct(productId);
+  if (!existing) throw new Error('Product not found');
 
-  let filter: Record<string, unknown> = { _id: productId };
-  let update: Record<string, unknown> = { $inc: { quantityOnHand: delta } };
-
-  if (delta < 0) {
-    filter = { _id: productId, quantityOnHand: { $gte: quantity } };
-  }
-
-  const product = await Product.findOneAndUpdate(filter, update, { new: true }).lean();
-  if (!product) {
-    const existing = await Product.findById(productId).lean();
-    if (!existing) throw new Error('Product not found');
-    const available = existing.quantityOnHand ?? 0;
+  if (delta < 0 && (existing.quantityOnHand ?? 0) < quantity) {
     throw new InsufficientStockError(
-      String(productId),
+      productId,
       existing.name,
       quantity,
-      available
+      existing.quantityOnHand ?? 0
     );
   }
 
-  const balanceAfter = product.quantityOnHand ?? 0;
-  const movement = await StockMovement.create({
+  const product = await db.updateProductQuantity(productId, delta, 0);
+  if (!product) {
+    throw new InsufficientStockError(
+      productId,
+      existing.name,
+      quantity,
+      existing.quantityOnHand ?? 0
+    );
+  }
+
+  const movement = await db.createMovement({
     productId,
     type,
     quantity,
-    balanceAfter,
-    date: movementDate,
+    balanceAfter: product.quantityOnHand ?? 0,
+    date: date ?? new Date(),
     referenceType: reference?.referenceType ?? 'manual',
     referenceId: reference?.referenceId ?? null,
     referenceLabel: reference?.referenceLabel ?? '',
@@ -90,60 +89,61 @@ export async function applyMovement(input: ApplyMovementInput) {
     createdByName: user?.name ?? '',
   });
 
-  return { product, movement: movement.toObject() };
+  return { product, movement };
 }
 
-export async function applyAdjustment(input: {
-  productId: string;
-  quantityDelta: number;
-  date?: Date;
-  notes?: string;
-  user?: AuthPayload;
-}) {
+export async function applyAdjustment(
+  schemaName: string,
+  input: {
+    productId: string;
+    quantityDelta: number;
+    date?: Date;
+    notes?: string;
+    user?: AuthPayload;
+  }
+) {
+  const db = createTenantDb(schemaName);
   const { productId, quantityDelta, date, notes, user } = input;
   if (!Number.isFinite(quantityDelta) || quantityDelta === 0) {
     throw new Error('quantityDelta must be a non-zero number');
   }
 
   const absQty = Math.abs(quantityDelta);
-  const movementDate = date ?? new Date();
+  const existing = await db.getProduct(productId);
+  if (!existing) throw new Error('Product not found');
 
-  let filter: Record<string, unknown> = { _id: productId };
-  const update = { $inc: { quantityOnHand: quantityDelta } };
-
-  if (quantityDelta < 0) {
-    filter = { _id: productId, quantityOnHand: { $gte: absQty } };
-  }
-
-  const product = await Product.findOneAndUpdate(filter, update, { new: true }).lean();
-  if (!product) {
-    const existing = await Product.findById(productId).lean();
-    if (!existing) throw new Error('Product not found');
-    const available = existing.quantityOnHand ?? 0;
+  if (quantityDelta < 0 && (existing.quantityOnHand ?? 0) < absQty) {
     throw new InsufficientStockError(
-      String(productId),
+      productId,
       existing.name,
       absQty,
-      available
+      existing.quantityOnHand ?? 0
     );
   }
 
-  const balanceAfter = product.quantityOnHand ?? 0;
-  const movement = await StockMovement.create({
+  const product = await db.updateProductQuantity(productId, quantityDelta, 0);
+  if (!product) {
+    throw new InsufficientStockError(
+      productId,
+      existing.name,
+      absQty,
+      existing.quantityOnHand ?? 0
+    );
+  }
+
+  const movement = await db.createMovement({
     productId,
     type: 'ADJUSTMENT',
     quantity: absQty,
-    balanceAfter,
-    date: movementDate,
-    referenceType: 'manual',
-    referenceId: null,
-    referenceLabel: '',
-    notes: notes ?? (quantityDelta > 0 ? `Adjustment +${absQty}` : `Adjustment -${absQty}`),
+    balanceAfter: product.quantityOnHand ?? 0,
+    date: date ?? new Date(),
+    notes:
+      notes ?? (quantityDelta > 0 ? `Adjustment +${absQty}` : `Adjustment -${absQty}`),
     createdByEmail: user?.email ?? '',
     createdByName: user?.name ?? '',
   });
 
-  return { product, movement: movement.toObject() };
+  return { product, movement };
 }
 
 export interface AppliedSale {
@@ -152,6 +152,7 @@ export interface AppliedSale {
 }
 
 export async function deductForSale(
+  schemaName: string,
   items: SaleLineItem[],
   reference: MovementReference,
   user?: AuthPayload
@@ -172,7 +173,7 @@ export async function deductForSale(
 
   try {
     for (const [productId, { productName, quantity }] of aggregated) {
-      const result = await applyMovement({
+      const result = await applyMovement(schemaName, {
         productId,
         type: 'SALE',
         quantity,
@@ -190,34 +191,24 @@ export async function deductForSale(
     }
     return { movements, applied };
   } catch (err) {
-    await restoreSaleDeduction(applied);
+    await restoreSaleDeduction(schemaName, applied);
     throw err;
   }
 }
 
 export async function linkSaleMovementsToInvoice(
-  invoiceId: mongoose.Types.ObjectId | string,
+  schemaName: string,
+  invoiceId: string,
   invoiceNumber: string
 ) {
-  await StockMovement.updateMany(
-    {
-      type: 'SALE',
-      referenceId: null,
-      referenceType: 'invoice',
-      referenceLabel: invoiceNumber,
-    },
-    { $set: { referenceId: invoiceId } }
-  );
+  await createTenantDb(schemaName).linkSaleMovementsToInvoice(invoiceId, invoiceNumber);
 }
 
-export async function restoreSaleDeduction(items: AppliedSale[]) {
+export async function restoreSaleDeduction(schemaName: string, items: AppliedSale[]) {
+  const db = createTenantDb(schemaName);
   for (const { productId, quantity } of items) {
-    const product = await Product.findByIdAndUpdate(
-      productId,
-      { $inc: { quantityOnHand: quantity } },
-      { new: true }
-    ).lean();
-    await StockMovement.create({
+    const product = await db.updateProductQuantity(productId, quantity, 0);
+    await db.createMovement({
       productId,
       type: 'RETURN_IN',
       quantity,
@@ -227,13 +218,14 @@ export async function restoreSaleDeduction(items: AppliedSale[]) {
       referenceId: null,
       referenceLabel: '',
       notes: 'Sale rollback (invoice creation failed)',
-      createdByEmail: '',
-      createdByName: '',
     });
   }
 }
 
-export function stockStatus(quantityOnHand: number, reorderLevel: number): 'in_stock' | 'low' | 'out' {
+export function stockStatus(
+  quantityOnHand: number,
+  reorderLevel: number
+): 'in_stock' | 'low' | 'out' {
   if (quantityOnHand <= 0) return 'out';
   if (reorderLevel > 0 && quantityOnHand <= reorderLevel) return 'low';
   return 'in_stock';

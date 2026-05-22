@@ -177,7 +177,7 @@ export default function Inventory() {
         <div className="flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-4 py-2 text-sm text-primary-800">
           <span>
             Filtered to product:{' '}
-            <strong>{products.find((p) => p._id === filterProductId)?.name || filterProductId}</strong>
+            <strong>{products.find((p) => p.id === filterProductId)?.name || filterProductId}</strong>
           </span>
           <button type="button" onClick={clearProductFilter} className="btn-ghost text-xs text-primary-700">
             Clear filter
@@ -216,7 +216,7 @@ export default function Inventory() {
           >
             <option value="">Select product</option>
             {products.map((p) => (
-              <option key={p._id} value={p._id}>
+              <option key={p.id} value={p.id}>
                 {p.name} ({p.quantityOnHand ?? 0} {p.unit})
               </option>
             ))}
@@ -262,7 +262,7 @@ export default function Inventory() {
           >
             <option value="">Select product</option>
             {products.map((p) => (
-              <option key={p._id} value={p._id}>
+              <option key={p.id} value={p.id}>
                 {p.name} ({p.quantityOnHand ?? 0} {p.unit})
               </option>
             ))}
@@ -317,7 +317,7 @@ export default function Inventory() {
               </thead>
               <tbody>
                 {summary?.items.map((p) => (
-                  <tr key={p._id}>
+                  <tr key={p.id}>
                     <td>{p.name}</td>
                     <td className="font-mono text-sm">{p.barcode}</td>
                     <td className="text-right font-medium">{p.quantityOnHand ?? 0}</td>
@@ -337,7 +337,7 @@ export default function Inventory() {
                     </td>
                     <td>
                       <Link
-                        to={`/inventory?productId=${p._id}`}
+                        to={`/inventory?productId=${p.id}`}
                         className="btn-ghost text-xs text-primary-700"
                       >
                         History
@@ -384,7 +384,7 @@ export default function Inventory() {
             </thead>
             <tbody>
               {movements.map((m) => (
-                <tr key={m._id}>
+                <tr key={m.id}>
                   <td>{formatDate(m.date)}</td>
                   <td>{productName(m)}</td>
                   <td>{TYPE_LABELS[m.type] || m.type}</td>

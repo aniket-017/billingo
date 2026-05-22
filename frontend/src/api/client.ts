@@ -15,7 +15,7 @@ export type BusinessSettings = {
 };
 
 export type Product = {
-  _id: string;
+  id: string;
   barcode: string;
   name: string;
   price: number;
@@ -23,12 +23,12 @@ export type Product = {
   description?: string;
   quantityOnHand?: number;
   reorderLevel?: number;
-  costPrice?: number;
+  costPrice?: number | null;
 };
 
 export type StockMovement = {
-  _id: string;
-  productId: { _id: string; name: string; barcode: string; unit?: string } | string;
+  id: string;
+  productId: { id: string; name: string; barcode: string; unit?: string } | string;
   type: string;
   quantity: number;
   balanceAfter: number;
@@ -40,6 +40,32 @@ export type StockMovement = {
   createdByEmail?: string;
   createdByName?: string;
   createdAt?: string;
+};
+
+export type Customer = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+};
+
+export type Business = {
+  id: string;
+  slug: string;
+  name: string;
+  schemaName: string;
+  status: string;
+  userCount?: number;
+};
+
+export type AppUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  businessId?: string | null;
+  businessName?: string;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -103,15 +129,17 @@ export const api = {
     lowStock: () => request<(Product & { status: string })[]>('/inventory/low-stock'),
   },
   customers: {
-    list: (q?: string) => request<{ _id: string; name: string; phone: string; email: string; address: string }[]>(q ? `/customers?q=${encodeURIComponent(q)}` : '/customers'),
-    get: (id: string) => request<{ _id: string; name: string; phone: string; email: string; address: string }>(`/customers/${id}`),
-    create: (body: { name: string; phone?: string; email?: string; address?: string }) => request<{ _id: string }>('/customers', { method: 'POST', body: JSON.stringify(body) }),
-    update: (id: string, body: Partial<{ name: string; phone: string; email: string; address: string }>) => request<{ _id: string }>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    list: (q?: string) => request<Customer[]>(q ? `/customers?q=${encodeURIComponent(q)}` : '/customers'),
+    get: (id: string) => request<Customer>(`/customers/${id}`),
+    create: (body: { name: string; phone?: string; email?: string; address?: string }) =>
+      request<Customer>('/customers', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<{ name: string; phone: string; email: string; address: string }>) =>
+      request<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id: string) => request<void>(`/customers/${id}`, { method: 'DELETE' }),
   },
   invoices: {
     list: (from?: string, to?: string, page?: number, pageSize?: number) =>
-      request<any>(
+      request<{ items: Invoice[]; total: number; page: number; pageSize: number; totalPages: number }>(
         `/invoices${
           from || to || page || pageSize
             ? '?' +
@@ -122,28 +150,36 @@ export const api = {
                 ...(pageSize && { limit: String(pageSize) }),
               }).toString()
             : ''
-        }`,
+        }`
       ),
-    get: (id: string) => request<any>(`/invoices/${id}`),
-    create: (body: { customerId?: string; items: { productId: string; productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }[]; tax?: number; notes?: string }) => request<any>('/invoices', { method: 'POST', body: JSON.stringify(body) }),
+    get: (id: string) => request<Invoice>(`/invoices/${id}`),
+    create: (body: {
+      customerId?: string;
+      items: { productId: string; productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }[];
+      tax?: number;
+      notes?: string;
+      sendWhatsApp?: boolean;
+    }) => request<Invoice>('/invoices', { method: 'POST', body: JSON.stringify(body) }),
   },
   reports: {
-    sales: (from?: string, to?: string) => request<{ summary: { totalSales: number; count: number }; byDay: { _id: string; total: number; count: number }[] }>(`/reports/sales${from || to ? '?' + new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString() : ''}`),
+    sales: (from?: string, to?: string) =>
+      request<{ summary: { totalSales: number; count: number }; byDay: { day: string; total: number; count: number }[] }>(
+        `/reports/sales${from || to ? '?' + new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString() : ''}`
+      ),
     inventory: (from?: string, to?: string) =>
       request<{
-        movementSummary: { _id: string; totalQuantity: number; count: number }[];
+        movementSummary: { type: string; totalQuantity: number; count: number }[];
         stock: { productCount: number; totalUnits: number; totalStockValue: number; lowStockCount: number; outOfStockCount: number };
-        products: { _id: string; name: string; barcode: string; quantityOnHand: number; reorderLevel: number; status: string; stockValue: number }[];
+        products: { id: string; name: string; barcode: string; quantityOnHand: number; reorderLevel: number; status: string; stockValue: number }[];
       }>(`/reports/inventory${from || to ? '?' + new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString() : ''}`),
   },
   auth: {
     login: (email: string, password: string) =>
-      request<{ token: string; user: { id: string; email: string; name: string; role: string } }>('/auth/login', {
+      request<{ token: string; user: AppUser }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }),
-    me: () =>
-      request<{ id: string; email: string; name: string; role: string }>('/auth/me'),
+    me: () => request<AppUser>('/auth/me'),
   },
   settings: {
     get: () => request<BusinessSettings>('/settings'),
@@ -152,23 +188,42 @@ export const api = {
   },
   admin: {
     login: (email: string, password: string) =>
-      request<{ token: string; user: { id: string; email: string; name: string; role: string } }>('/admin/login', {
+      request<{ token: string; user: AppUser }>('/admin/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }),
-    createUser: (name: string, email: string, password: string, role?: 'user' | 'admin') =>
-      request<{ id: string; name: string; email: string; role: string }>('/admin/users', {
+  },
+  platform: {
+    listBusinesses: () => request<Business[]>('/platform/businesses'),
+    createBusiness: (name: string, slug: string) =>
+      request<Business>('/platform/businesses', {
         method: 'POST',
-        body: JSON.stringify({ name, email, password, role: role || 'user' }),
+        body: JSON.stringify({ name, slug }),
       }),
-    listUsers: () =>
-      request<{ _id: string; name: string; email: string; role: string }[]>('/admin/users'),
-    updateUser: (id: string, body: { name: string; email: string; role: 'user' | 'admin' }) =>
-      request<{ _id: string; name: string; email: string; role: string }>(`/admin/users/${id}`, {
-        method: 'PUT',
+    listBusinessUsers: (businessId: string) =>
+      request<AppUser[]>(`/platform/businesses/${businessId}/users`),
+    createBusinessUser: (
+      businessId: string,
+      body: { name: string; email: string; password: string; role?: 'user' | 'business_admin' }
+    ) =>
+      request<AppUser>(`/platform/businesses/${businessId}/users`, {
+        method: 'POST',
         body: JSON.stringify(body),
       }),
-    deleteUser: (id: string) =>
-      request<void>(`/admin/users/${id}`, { method: 'DELETE' }),
   },
+};
+
+export type Invoice = {
+  id: string;
+  invoiceNumber: string;
+  date: string;
+  customerId?: string | null;
+  customer?: Customer | null;
+  createdByEmail?: string;
+  createdByName?: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  notes?: string;
+  items?: { productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }[];
 };

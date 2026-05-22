@@ -1,45 +1,27 @@
 import { Router } from 'express';
-import { Invoice } from '../models/Invoice.js';
-import { Product } from '../models/Product.js';
-import { StockMovement } from '../models/StockMovement.js';
+import { authMiddleware, tenantMiddleware } from '../middleware/auth.js';
+import { getTenantDb } from '../middleware/tenant.js';
 import { stockStatus } from '../services/stock.js';
 
 const router = Router();
+
+router.use(authMiddleware, tenantMiddleware);
 
 router.get('/sales', async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
-    const match: Record<string, unknown> = {};
-    if (from || to) {
-      match.date = {};
-      if (from) (match.date as Record<string, Date>).$gte = new Date(from);
-      if (to) (match.date as Record<string, Date>).$lte = new Date(to);
-    }
-    const summary = await Invoice.aggregate([
-      ...(Object.keys(match).length ? [{ $match: match }] : []),
-      {
-        $group: {
-          _id: null,
-          totalSales: { $sum: '$total' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-    const byDay = await Invoice.aggregate([
-      ...(Object.keys(match).length ? [{ $match: match }] : []),
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-          total: { $sum: '$total' },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    const report = await getTenantDb(req).salesReport(
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined
+    );
     res.json({
-      summary: summary[0] || { totalSales: 0, count: 0 },
-      byDay,
+      summary: report.summary,
+      byDay: report.byDay.map((d) => ({
+        day: d.day,
+        total: d.total,
+        count: d.count,
+      })),
     });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -50,35 +32,19 @@ router.get('/inventory', async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
-    const match: Record<string, unknown> = {};
-    if (from || to) {
-      match.date = {};
-      if (from) (match.date as Record<string, Date>).$gte = new Date(from);
-      if (to) {
-        const toDate = new Date(to);
-        toDate.setHours(23, 59, 59, 999);
-        (match.date as Record<string, Date>).$lte = toDate;
-      }
+    let toDate: Date | undefined;
+    if (to) {
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
     }
 
-    const [movementSummary, products] = await Promise.all([
-      StockMovement.aggregate([
-        ...(Object.keys(match).length ? [{ $match: match }] : []),
-        {
-          $group: {
-            _id: '$type',
-            totalQuantity: { $sum: '$quantity' },
-            count: { $sum: 1 },
-          },
-        },
-      ]),
-      Product.find()
-        .select('name barcode quantityOnHand reorderLevel costPrice')
-        .lean(),
-    ]);
+    const report = await getTenantDb(req).inventoryReport(
+      from ? new Date(from) : undefined,
+      toDate
+    );
 
-    const summaryItems = products.map((p) => ({
-      _id: p._id,
+    const summaryItems = report.products.map((p) => ({
+      id: p.id,
       name: p.name,
       barcode: p.barcode,
       quantityOnHand: p.quantityOnHand ?? 0,
@@ -88,7 +54,11 @@ router.get('/inventory', async (req, res) => {
     }));
 
     res.json({
-      movementSummary,
+      movementSummary: report.movementSummary.map((m) => ({
+        type: m.type,
+        totalQuantity: m.totalQuantity,
+        count: m.count,
+      })),
       stock: {
         productCount: summaryItems.length,
         totalUnits: summaryItems.reduce((s, i) => s + i.quantityOnHand, 0),

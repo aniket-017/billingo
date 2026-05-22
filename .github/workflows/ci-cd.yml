@@ -73,6 +73,7 @@ jobs:
            echo "📦 Installing backend dependencies"
            cd ~/Invoice/backend
            npm install
+           npx prisma migrate deploy
            npm run build
 
            cd ../frontend

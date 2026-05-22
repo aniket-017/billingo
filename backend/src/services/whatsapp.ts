@@ -6,6 +6,7 @@ type CustomerForWhatsApp = {
 type InvoiceForWhatsApp = {
   invoiceNumber: string;
   customerId?: CustomerForWhatsApp | null;
+  customer?: CustomerForWhatsApp | null;
 };
 
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -70,7 +71,7 @@ export async function sendInvoiceWhatsApp(
     return;
   }
 
-  const customer = invoice.customerId;
+  const customer = invoice.customer ?? invoice.customerId;
   const customerPhone = customer?.phone;
   const to = normalizeIndianPhone(customerPhone || '');
 

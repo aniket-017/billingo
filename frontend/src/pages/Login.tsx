@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 import { useBusinessDisplayName } from '../contexts/BusinessSettingsContext';
+import { getSafeRedirectPath } from '../utils/redirect';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,12 +13,18 @@ export default function Login() {
   const { login, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
+  const redirectTo = getSafeRedirectPath(location.state);
   const { displayName } = useBusinessDisplayName();
 
   useEffect(() => {
-    if (!authLoading && user) navigate(from, { replace: true });
-  }, [user, authLoading, navigate, from]);
+    if (!authLoading && user) {
+      if (user.role === 'platform_admin') {
+        navigate('/admin/login', { replace: true });
+        return;
+      }
+      navigate(redirectTo, { replace: true });
+    }
+  }, [user, authLoading, navigate, redirectTo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,8 +32,15 @@ export default function Login() {
     setLoading(true);
     try {
       const { token, user } = await api.auth.login(email, password);
-      login(token, { id: user.id, email: user.email, name: user.name || '', role: user.role as 'user' | 'admin' });
-      navigate(from, { replace: true });
+      login(token, {
+        id: user.id,
+        email: user.email,
+        name: user.name || '',
+        role: user.role as 'user' | 'business_admin',
+        businessId: user.businessId,
+        businessName: user.businessName,
+      });
+      navigate(redirectTo, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

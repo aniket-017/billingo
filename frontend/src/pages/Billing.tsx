@@ -16,7 +16,7 @@ type CartItem = {
 export default function Billing() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerId, setCustomerId] = useState<string>('');
-  const [customers, setCustomers] = useState<{ _id: string; name: string; phone: string; email: string; address: string }[]>([]);
+  const [customers, setCustomers] = useState<{ id: string; name: string; phone: string; email: string; address: string }[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [customerFormOpen, setCustomerFormOpen] = useState(false);
@@ -37,7 +37,7 @@ export default function Billing() {
       }
       let blocked = false;
       setCart((prev) => {
-        const i = prev.find((x) => x.productId === product._id);
+        const i = prev.find((x) => x.productId === product.id);
         if (i) {
           if (i.quantity >= onHand) {
             blocked = true;
@@ -45,7 +45,7 @@ export default function Billing() {
           }
           const q = i.quantity + 1;
           return prev.map((x) =>
-            x.productId === product._id
+            x.productId === product.id
               ? { ...x, quantity: q, amount: q * x.unitPrice, quantityOnHand: onHand }
               : x
           );
@@ -53,7 +53,7 @@ export default function Billing() {
         return [
           ...prev,
           {
-            productId: product._id,
+            productId: product.id,
             productName: product.name,
             barcode: product.barcode,
             quantity: 1,
@@ -158,7 +158,7 @@ export default function Billing() {
       setToast({ message: 'Customer added', type: 'success' });
       setCustomerFormOpen(false);
       await loadCustomers(customerSearch);
-      setCustomerId(res._id);
+      setCustomerId(res.id);
     } catch (e) {
       setToast({ message: (e as Error).message, type: 'error' });
     }
@@ -290,7 +290,7 @@ export default function Billing() {
                 <span className={customerId ? '' : 'text-slate-400'}>
                   {customerId
                     ? (() => {
-                        const c = customers.find((x) => x._id === customerId);
+                        const c = customers.find((x) => x.id === customerId);
                         if (!c) return '— None —';
                         return `${c.name}${c.phone ? ` · ${c.phone}` : ''}`;
                       })()
@@ -314,13 +314,13 @@ export default function Billing() {
                   {customers.map((c) => (
                     <button
                       type="button"
-                      key={c._id}
+                      key={c.id}
                       className={`flex w-full cursor-pointer items-center px-3 py-1.5 text-left hover:bg-slate-100 ${
-                        c._id === customerId ? 'bg-primary-50 font-medium text-primary-700' : ''
+                        c.id === customerId ? 'bg-primary-50 font-medium text-primary-700' : ''
                       }`}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
-                        setCustomerId(c._id);
+                        setCustomerId(c.id);
                         setCustomerDropdownOpen(false);
                       }}
                     >

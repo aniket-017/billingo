@@ -1,22 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../api/client';
+import { api, type Invoice } from '../api/client';
 import { useBusinessSettings } from '../contexts/BusinessSettingsContext';
 import Toast from '../components/Toast';
-
-type Customer = { _id: string; name: string; phone?: string; email?: string; address?: string };
-type Invoice = {
-  _id: string;
-  invoiceNumber: string;
-  date: string;
-  customerId: Customer | null;
-  createdByEmail?: string;
-  createdByName?: string;
-  subtotal: number;
-  tax: number;
-  total: number;
-  notes: string;
-  items: { productName: string; quantity: number; unitPrice: number; amount: number }[];
-};
 
 export default function Invoices() {
   const { settings } = useBusinessSettings();
@@ -58,12 +43,12 @@ export default function Invoices() {
     if (!detail) return;
     const win = window.open('', '_blank');
     if (!win) return;
-    const customer = detail.customerId;
+    const customer = detail.customer;
     const storeName = settings.businessName.trim();
     const storeAddress = settings.address.trim();
     const contactLines = [settings.phone.trim(), settings.email.trim()].filter(Boolean);
     if (settings.taxId.trim()) contactLines.push(`Tax ID: ${settings.taxId.trim()}`);
-    const rows = detail.items
+    const rows = (detail.items ?? [])
       .map(
         (i) =>
           `<tr><td>${i.productName}</td><td class="num">${i.quantity}</td><td class="num">${i.unitPrice.toFixed(
@@ -198,13 +183,13 @@ export default function Invoices() {
               </thead>
               <tbody>
                 {list.map((inv) => (
-                  <tr key={inv._id}>
+                  <tr key={inv.id}>
                     <td className="font-medium">{inv.invoiceNumber}</td>
                     <td>{new Date(inv.date).toLocaleDateString()}</td>
-                    <td>{inv.customerId?.name ?? '—'}</td>
+                    <td>{inv.customer?.name ?? '—'}</td>
                     <td className="text-right">{inv.total.toFixed(2)}</td>
                     <td>
-                      <button type="button" onClick={() => openDetail(inv._id)} className="btn-ghost text-sm">
+                      <button type="button" onClick={() => openDetail(inv.id)} className="btn-ghost text-sm">
                         View
                       </button>
                     </td>
@@ -262,12 +247,12 @@ export default function Invoices() {
               </div>
             </div>
             <p className="mt-2 text-slate-600">Date: {new Date(detail.date).toLocaleString()}</p>
-            {detail.customerId && (
+            {detail.customer && (
               <div className="mt-2 text-slate-600 text-sm">
                 <span className="font-semibold">Billed to:</span>
-                <p className="mt-1 text-base font-medium">{detail.customerId.name}</p>
-                {detail.customerId.phone && <p className="text-sm">{detail.customerId.phone}</p>}
-                {detail.customerId.address && <p className="text-sm">{detail.customerId.address}</p>}
+                <p className="mt-1 text-base font-medium">{detail.customer.name}</p>
+                {detail.customer.phone && <p className="text-sm">{detail.customer.phone}</p>}
+                {detail.customer.address && <p className="text-sm">{detail.customer.address}</p>}
               </div>
             )}
             <div className="table-wrap mt-4">
@@ -281,7 +266,7 @@ export default function Invoices() {
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.items.map((i, idx) => (
+                  {(detail.items ?? []).map((i, idx) => (
                     <tr key={idx}>
                       <td>{i.productName}</td>
                       <td className="text-right">{i.quantity}</td>

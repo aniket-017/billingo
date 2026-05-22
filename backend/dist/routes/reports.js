@@ -1,42 +1,60 @@
 import { Router } from 'express';
-import { Invoice } from '../models/Invoice.js';
+import { authMiddleware, tenantMiddleware } from '../middleware/auth.js';
+import { getTenantDb } from '../middleware/tenant.js';
+import { stockStatus } from '../services/stock.js';
 const router = Router();
+router.use(authMiddleware, tenantMiddleware);
 router.get('/sales', async (req, res) => {
     try {
         const from = req.query.from;
         const to = req.query.to;
-        const match = {};
-        if (from || to) {
-            match.date = {};
-            if (from)
-                match.date.$gte = new Date(from);
-            if (to)
-                match.date.$lte = new Date(to);
-        }
-        const summary = await Invoice.aggregate([
-            ...(Object.keys(match).length ? [{ $match: match }] : []),
-            {
-                $group: {
-                    _id: null,
-                    totalSales: { $sum: '$total' },
-                    count: { $sum: 1 },
-                },
-            },
-        ]);
-        const byDay = await Invoice.aggregate([
-            ...(Object.keys(match).length ? [{ $match: match }] : []),
-            {
-                $group: {
-                    _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-                    total: { $sum: '$total' },
-                    count: { $sum: 1 },
-                },
-            },
-            { $sort: { _id: 1 } },
-        ]);
+        const report = await getTenantDb(req).salesReport(from ? new Date(from) : undefined, to ? new Date(to) : undefined);
         res.json({
-            summary: summary[0] || { totalSales: 0, count: 0 },
-            byDay,
+            summary: report.summary,
+            byDay: report.byDay.map((d) => ({
+                day: d.day,
+                total: d.total,
+                count: d.count,
+            })),
+        });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+router.get('/inventory', async (req, res) => {
+    try {
+        const from = req.query.from;
+        const to = req.query.to;
+        let toDate;
+        if (to) {
+            toDate = new Date(to);
+            toDate.setHours(23, 59, 59, 999);
+        }
+        const report = await getTenantDb(req).inventoryReport(from ? new Date(from) : undefined, toDate);
+        const summaryItems = report.products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            barcode: p.barcode,
+            quantityOnHand: p.quantityOnHand ?? 0,
+            reorderLevel: p.reorderLevel ?? 0,
+            status: stockStatus(p.quantityOnHand ?? 0, p.reorderLevel ?? 0),
+            stockValue: (p.costPrice ?? 0) * (p.quantityOnHand ?? 0),
+        }));
+        res.json({
+            movementSummary: report.movementSummary.map((m) => ({
+                type: m.type,
+                totalQuantity: m.totalQuantity,
+                count: m.count,
+            })),
+            stock: {
+                productCount: summaryItems.length,
+                totalUnits: summaryItems.reduce((s, i) => s + i.quantityOnHand, 0),
+                totalStockValue: summaryItems.reduce((s, i) => s + i.stockValue, 0),
+                lowStockCount: summaryItems.filter((i) => i.status === 'low').length,
+                outOfStockCount: summaryItems.filter((i) => i.status === 'out').length,
+            },
+            products: summaryItems,
         });
     }
     catch (e) {

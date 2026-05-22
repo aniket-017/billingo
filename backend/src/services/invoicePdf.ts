@@ -18,7 +18,7 @@ type InvoiceItem = {
 };
 
 type InvoiceForPdf = {
-  _id: string;
+  id: string;
   invoiceNumber: string;
   date: Date | string;
   subtotal: number;
@@ -26,7 +26,7 @@ type InvoiceForPdf = {
   total: number;
   notes?: string;
   createdByName?: string;
-  customerId?: {
+  customer?: {
     name?: string;
     phone?: string;
     email?: string;
@@ -35,8 +35,11 @@ type InvoiceForPdf = {
   items: InvoiceItem[];
 };
 
-export async function generateInvoicePdf(invoice: InvoiceForPdf): Promise<string> {
-  const settings = await getBusinessSettings();
+export async function generateInvoicePdf(
+  schemaName: string,
+  invoice: InvoiceForPdf
+): Promise<string> {
+  const settings = await getBusinessSettings(schemaName);
   const invoicesDir = path.join(projectRoot, 'invoices');
   await fs.promises.mkdir(invoicesDir, { recursive: true });
 
@@ -100,20 +103,20 @@ export async function generateInvoicePdf(invoice: InvoiceForPdf): Promise<string
     }
 
     // Customer section
-    if (invoice.customerId) {
+    if (invoice.customer) {
       doc.fontSize(10).text('Billed to:', margin, y);
       y += 14;
-      if (invoice.customerId.name) {
-        doc.fontSize(11).text(invoice.customerId.name, margin, y);
+      if (invoice.customer.name) {
+        doc.fontSize(11).text(invoice.customer.name, margin, y);
         y += 14;
       }
-      if (invoice.customerId.phone) {
-        doc.fontSize(10).text(invoice.customerId.phone, margin, y);
+      if (invoice.customer.phone) {
+        doc.fontSize(10).text(invoice.customer.phone, margin, y);
         y += 12;
       }
       const addrParts: string[] = [];
-      if (invoice.customerId.address) addrParts.push(invoice.customerId.address);
-      if (invoice.customerId.email) addrParts.push(invoice.customerId.email);
+      if (invoice.customer.address) addrParts.push(invoice.customer.address);
+      if (invoice.customer.email) addrParts.push(invoice.customer.email);
       if (addrParts.length) {
         doc.text(addrParts.join(' · '), margin, y);
         y += 16;

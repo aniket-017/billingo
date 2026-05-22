@@ -105,7 +105,7 @@ export default function Products() {
       const reorderLevel = form.reorderLevel.trim() ? Math.max(0, parseFloat(form.reorderLevel)) : 0;
       const costPrice = form.costPrice.trim() ? Math.max(0, parseFloat(form.costPrice)) : undefined;
       if (editing) {
-        await api.products.update(editing._id, {
+        await api.products.update(editing.id, {
           barcode,
           name,
           price,
@@ -228,8 +228,8 @@ export default function Products() {
 
   const openPrintLabelsGrid = async () => {
     const items: { product: Product; qty: number }[] = list
-      .filter((p) => (printQty[p._id] || 0) > 0)
-      .map((p) => ({ product: p, qty: printQty[p._id] || 0 }));
+      .filter((p) => (printQty[p.id] || 0) > 0)
+      .map((p) => ({ product: p, qty: printQty[p.id] || 0 }));
     await openLabelsGridForItems(items, labelType);
   };
 
@@ -324,7 +324,7 @@ export default function Products() {
               </thead>
               <tbody>
                 {list.map((p) => (
-                  <tr key={p._id}>
+                  <tr key={p.id}>
                     <td className="font-mono text-sm">{p.barcode}</td>
                     <td>{p.name}</td>
                     <td className="text-right">{p.price.toFixed(2)}</td>
@@ -345,14 +345,14 @@ export default function Products() {
                         type="number"
                         min={0}
                         max={999}
-                        value={printQty[p._id] ?? 0}
-                        onChange={(e) => setPrintQty((prev) => ({ ...prev, [p._id]: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                        value={printQty[p.id] ?? 0}
+                        onChange={(e) => setPrintQty((prev) => ({ ...prev, [p.id]: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
                         className="input w-20 py-1.5 text-center text-sm"
                       />
                     </td>
                     <td className="whitespace-nowrap text-right">
                       <Link
-                        to={`/inventory?productId=${p._id}`}
+                        to={`/inventory?productId=${p.id}`}
                         className="btn-ghost inline-flex items-center text-xs px-1 text-primary-700"
                       >
                         History
@@ -380,7 +380,7 @@ export default function Products() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => deleteProduct(p._id)}
+                        onClick={() => deleteProduct(p.id)}
                         className="btn-ghost inline-flex items-center text-red-600 text-xs px-1"
                       >
                         Delete

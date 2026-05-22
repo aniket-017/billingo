@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  platform_admin
+  business_admin
+  user
+}
+
+enum BusinessStatus {
+  active
+  suspended
+}
+
+model Business {
+  id         String         @id @default(uuid()) @db.Uuid
+  slug       String         @unique
+  name       String
+  schemaName String         @unique @map("schema_name")
+  status     BusinessStatus @default(active)
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+  users      User[]
+
+  @@map("businesses")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String    @default("")
+  role         UserRole  @default(user)
+  businessId   String?   @map("business_id") @db.Uuid
+  business     Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}

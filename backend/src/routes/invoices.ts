@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { Invoice } from '../models/Invoice.js';
 import { generateInvoicePdf } from '../services/invoicePdf.js';
 import { sendInvoiceWhatsApp } from '../services/whatsapp.js';
-import { authMiddleware, AuthPayload } from '../middleware/auth.js';
+import { authMiddleware, AuthPayload, tenantMiddleware } from '../middleware/auth.js';
+import { getTenant, getTenantDb } from '../middleware/tenant.js';
 import {
   deductForSale,
   linkSaleMovementsToInvoice,
@@ -12,7 +12,7 @@ import {
 
 const router = Router();
 
-router.use(authMiddleware);
+router.use(authMiddleware, tenantMiddleware);
 
 function getNextInvoiceNumber(): string {
   return 'INV-' + Date.now();
@@ -27,26 +27,19 @@ router.get('/', async (req, res) => {
     const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
     const pageSize = Number.isFinite(limit) && limit > 0 && limit <= 200 ? limit : 10;
 
-    const filter: Record<string, unknown> = {};
-    if (from) filter.date = { ...((filter.date as object) || {}), $gte: new Date(from) };
-    if (to) filter.date = { ...((filter.date as object) || {}), $lte: new Date(to) };
-
-    const [invoices, total] = await Promise.all([
-      Invoice.find(filter)
-        .populate('customerId', 'name phone email address')
-        .sort({ date: -1 })
-        .skip((pageNumber - 1) * pageSize)
-        .limit(pageSize)
-        .lean(),
-      Invoice.countDocuments(filter),
-    ]);
-
-    res.json({
-      items: invoices,
-      total,
+    const result = await getTenantDb(req).listInvoices({
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
       page: pageNumber,
       pageSize,
-      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
+
+    res.json({
+      items: result.items,
+      total: result.total,
+      page: pageNumber,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
     });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -55,9 +48,7 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id)
-      .populate('customerId', 'name phone email address')
-      .lean();
+    const invoice = await getTenantDb(req).getInvoice(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
     res.json(invoice);
   } catch (e) {
@@ -69,7 +60,14 @@ router.post('/', async (req, res) => {
   try {
     const { customerId, items, tax = 0, notes = '', sendWhatsApp = false } = req.body as {
       customerId?: string;
-      items: { productId: string; productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }[];
+      items: {
+        productId: string;
+        productName: string;
+        barcode: string;
+        quantity: number;
+        unitPrice: number;
+        amount: number;
+      }[];
       tax?: number;
       notes?: string;
       sendWhatsApp?: boolean;
@@ -77,7 +75,10 @@ router.post('/', async (req, res) => {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'items array is required' });
     }
-    const subtotal = items.reduce((sum: number, i: { amount: number }) => sum + Number(i.amount), 0);
+
+    const schemaName = getTenant(req).schemaName;
+    const db = getTenantDb(req);
+    const subtotal = items.reduce((sum, i) => sum + Number(i.amount), 0);
     const total = subtotal + Number(tax);
     const authUser = (req as typeof req & { user?: AuthPayload }).user;
     const invoiceNumber = getNextInvoiceNumber();
@@ -85,6 +86,7 @@ router.post('/', async (req, res) => {
     let applied: { productId: string; quantity: number }[] = [];
     try {
       const saleResult = await deductForSale(
+        schemaName,
         items.map((i) => ({
           productId: i.productId,
           productName: i.productName,
@@ -103,44 +105,59 @@ router.post('/', async (req, res) => {
 
     let invoice;
     try {
-      invoice = await Invoice.create({
-      customerId: customerId || null,
-      invoiceNumber,
-      date: new Date(),
-      createdByEmail: authUser?.email || '',
-      createdByName: authUser?.name || '',
-      subtotal,
-      tax: Number(tax),
-      total,
-      notes: String(notes),
-      items: items.map((i: { productId: string; productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }) => ({
-        productId: i.productId,
-        productName: i.productName,
-        barcode: i.barcode,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        amount: i.amount,
-      })),
-    });
+      invoice = await db.createInvoice({
+        customerId: customerId || null,
+        invoiceNumber,
+        date: new Date(),
+        createdByEmail: authUser?.email || '',
+        createdByName: authUser?.name || '',
+        subtotal,
+        tax: Number(tax),
+        total,
+        notes: String(notes),
+        items: items.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          barcode: i.barcode,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          amount: i.amount,
+        })),
+      });
     } catch (createErr) {
-      await restoreSaleDeduction(applied);
+      await restoreSaleDeduction(schemaName, applied);
       throw createErr;
     }
 
-    await linkSaleMovementsToInvoice(invoice._id, invoiceNumber);
+    await linkSaleMovementsToInvoice(schemaName, invoice.id, invoiceNumber);
 
-    const populated = await Invoice.findById(invoice._id)
-      .populate('customerId', 'name phone email address')
-      .lean();
+    const populated = await db.getInvoice(invoice.id);
     if (populated) {
       try {
-        await generateInvoicePdf(populated as any);
+        await generateInvoicePdf(schemaName, {
+          id: populated.id,
+          invoiceNumber: populated.invoiceNumber,
+          date: populated.date,
+          subtotal: populated.subtotal,
+          tax: populated.tax,
+          total: populated.total,
+          notes: populated.notes,
+          createdByName: populated.createdByName,
+          customer: populated.customer,
+          items: (populated.items ?? []).map((i) => ({
+            productName: i.productName,
+            barcode: i.barcode,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            amount: i.amount,
+          })),
+        });
       } catch (pdfError) {
         console.error('Failed to generate invoice PDF', pdfError);
       }
       if (sendWhatsApp) {
         try {
-          await sendInvoiceWhatsApp(populated as any);
+          await sendInvoiceWhatsApp(populated as Parameters<typeof sendInvoiceWhatsApp>[0]);
         } catch (waError) {
           console.error('Failed to send invoice via WhatsApp', waError);
         }

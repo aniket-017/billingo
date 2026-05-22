@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
+import dotenv from 'dotenv';
 import { connectDb } from './db/connect.js';
 import { seedAdmin } from './db/seedAdmin.js';
 import productsRouter from './routes/products.js';
@@ -12,8 +13,9 @@ import reportsRouter from './routes/reports.js';
 import inventoryRouter from './routes/inventory.js';
 import authRouter from './routes/auth.js';
 import adminRouter from './routes/admin.js';
+import platformRouter from './routes/platform.js';
 import settingsRouter from './routes/settings.js';
-import dotenv from "dotenv";
+
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +29,7 @@ app.use(express.json());
 
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/platform', platformRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/invoices', invoicesRouter);
@@ -36,17 +39,13 @@ app.use('/api/settings', settingsRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-// Serve generated invoice PDFs publicly at /invoices/INV-*.pdf
 const invoicesDir = path.join(projectRoot, 'invoices');
-// Ensure directory exists so route is always valid
 if (!fs.existsSync(invoicesDir)) {
   fs.mkdirSync(invoicesDir, { recursive: true });
 }
 
-// Force download when hitting /invoices/:fileName
 app.get('/invoices/:fileName', (req, res) => {
   const fileName = req.params.fileName;
-  // Simple whitelist to avoid path traversal
   if (!/^[A-Za-z0-9_.-]+$/.test(fileName)) {
     return res.status(400).send('Invalid file name');
   }
