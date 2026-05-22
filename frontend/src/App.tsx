@@ -6,6 +6,7 @@ import Products from './pages/Products';
 import Customers from './pages/Customers';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
+import Inventory from './pages/Inventory';
 import Login from './pages/Login';
 import AdminLogin from './pages/AdminLogin';
 import { useAuth } from './contexts/AuthContext';
@@ -13,6 +14,7 @@ import { useAuth } from './contexts/AuthContext';
 const nav = [
   { to: '/', label: 'Billing' },
   { to: '/products', label: 'Products' },
+  { to: '/inventory', label: 'Inventory' },
   { to: '/customers', label: 'Customers' },
   { to: '/invoices', label: 'Invoices' },
   { to: '/reports', label: 'Reports' },
@@ -72,6 +74,7 @@ export default function App() {
       >
         <Route index element={<Billing />} />
         <Route path="products" element={<Products />} />
+        <Route path="inventory" element={<Inventory />} />
         <Route path="customers" element={<Customers />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="reports" element={<Reports />} />

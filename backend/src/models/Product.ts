@@ -7,6 +7,9 @@ const productSchema = new mongoose.Schema(
     price: { type: Number, required: true },
     unit: { type: String, default: 'pcs' },
     description: { type: String, default: '' },
+    quantityOnHand: { type: Number, default: 0, min: 0 },
+    reorderLevel: { type: Number, default: 0, min: 0 },
+    costPrice: { type: Number, min: 0 },
   },
   { timestamps: true }
 );

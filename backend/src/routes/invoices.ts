@@ -3,6 +3,12 @@ import { Invoice } from '../models/Invoice.js';
 import { generateInvoicePdf } from '../services/invoicePdf.js';
 import { sendInvoiceWhatsApp } from '../services/whatsapp.js';
 import { authMiddleware, AuthPayload } from '../middleware/auth.js';
+import {
+  deductForSale,
+  linkSaleMovementsToInvoice,
+  restoreSaleDeduction,
+  InsufficientStockError,
+} from '../services/stock.js';
 
 const router = Router();
 
@@ -74,9 +80,32 @@ router.post('/', async (req, res) => {
     const subtotal = items.reduce((sum: number, i: { amount: number }) => sum + Number(i.amount), 0);
     const total = subtotal + Number(tax);
     const authUser = (req as typeof req & { user?: AuthPayload }).user;
-    const invoice = await Invoice.create({
+    const invoiceNumber = getNextInvoiceNumber();
+
+    let applied: { productId: string; quantity: number }[] = [];
+    try {
+      const saleResult = await deductForSale(
+        items.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: Number(i.quantity),
+        })),
+        { referenceType: 'invoice', referenceId: null, referenceLabel: invoiceNumber },
+        authUser
+      );
+      applied = saleResult.applied;
+    } catch (stockErr) {
+      if (stockErr instanceof InsufficientStockError) {
+        return res.status(400).json({ error: stockErr.message });
+      }
+      throw stockErr;
+    }
+
+    let invoice;
+    try {
+      invoice = await Invoice.create({
       customerId: customerId || null,
-      invoiceNumber: getNextInvoiceNumber(),
+      invoiceNumber,
       date: new Date(),
       createdByEmail: authUser?.email || '',
       createdByName: authUser?.name || '',
@@ -93,6 +122,13 @@ router.post('/', async (req, res) => {
         amount: i.amount,
       })),
     });
+    } catch (createErr) {
+      await restoreSaleDeduction(applied);
+      throw createErr;
+    }
+
+    await linkSaleMovementsToInvoice(invoice._id, invoiceNumber);
+
     const populated = await Invoice.findById(invoice._id)
       .populate('customerId', 'name phone email address')
       .lean();
@@ -112,6 +148,9 @@ router.post('/', async (req, res) => {
     }
     res.status(201).json(populated);
   } catch (e) {
+    if (e instanceof InsufficientStockError) {
+      return res.status(400).json({ error: e.message });
+    }
     res.status(500).json({ error: (e as Error).message });
   }
 });

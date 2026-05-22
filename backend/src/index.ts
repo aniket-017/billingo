@@ -9,6 +9,7 @@ import productsRouter from './routes/products.js';
 import customersRouter from './routes/customers.js';
 import invoicesRouter from './routes/invoices.js';
 import reportsRouter from './routes/reports.js';
+import inventoryRouter from './routes/inventory.js';
 import authRouter from './routes/auth.js';
 import adminRouter from './routes/admin.js';
 import dotenv from "dotenv";
@@ -29,6 +30,7 @@ app.use('/api/products', productsRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/inventory', inventoryRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

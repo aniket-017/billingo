@@ -4,11 +4,12 @@ A full-featured barcode billing application with product and customer management
 
 ## Features
 
-- **Products**: Add/edit/delete products with barcode, name, price. Generate barcode and print labels to stick on products.
+- **Products**: Add/edit/delete products with barcode, name, price, optional opening stock, reorder level, and cost price. Generate barcode and print labels.
+- **Inventory**: Receive stock, adjust quantities, view movement history (what was added/sold and when), current stock levels, and low-stock alerts.
 - **Customers**: Manage customers (name, phone, email, address).
-- **Billing**: Scan barcode (camera or USB scanner) or enter manually; add to cart; optional customer; complete sale and create invoice.
+- **Billing**: Scan barcode (camera or USB scanner) or enter manually; add to cart with stock checks; optional customer; complete sale and create invoice (stock deducted automatically).
 - **Invoices**: List and filter by date; view and print invoice details.
-- **Reports**: Sales summary by date range; export to CSV.
+- **Reports**: Sales summary and inventory summary by date range; export to CSV.
 
 ## Prerequisites
 
@@ -45,7 +46,18 @@ A full-featured barcode billing application with product and customer management
 
 ## Project structure
 
-- `backend/` – Node + Express + MongoDB API (products, customers, invoices, reports, barcode image)
+- `backend/` – Node + Express + MongoDB API (products, inventory/stock movements, customers, invoices, reports, barcode image)
+
+## Inventory API (authenticated)
+
+- `GET /api/inventory/movements` – Stock ledger (filter by product, date, type)
+- `POST /api/inventory/stock-in` – Record received stock
+- `POST /api/inventory/adjust` – Manual stock adjustment (+/−)
+- `GET /api/inventory/summary` – Current stock snapshot
+- `GET /api/inventory/low-stock` – Products at or below reorder level
+- `GET /api/reports/inventory` – Inventory report for Reports page
+
+Products accept optional `openingQuantity` on create. Invoices deduct stock atomically; overselling is blocked.
 - `frontend/` – React + Vite + Tailwind UI
 - `electron/` – Electron main process (starts backend and loads app)
 

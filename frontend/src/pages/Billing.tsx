@@ -10,6 +10,7 @@ type CartItem = {
   quantity: number;
   unitPrice: number;
   amount: number;
+  quantityOnHand: number;
 };
 
 export default function Billing() {
@@ -29,15 +30,44 @@ export default function Billing() {
     if (!code) return;
     try {
       const product = await api.products.getByBarcode(code);
+      const onHand = product.quantityOnHand ?? 0;
+      if (onHand <= 0) {
+        setToast({ message: `${product.name} is out of stock`, type: 'error' });
+        return;
+      }
+      let blocked = false;
       setCart((prev) => {
         const i = prev.find((x) => x.productId === product._id);
         if (i) {
+          if (i.quantity >= onHand) {
+            blocked = true;
+            return prev;
+          }
           const q = i.quantity + 1;
-          return prev.map((x) => (x.productId === product._id ? { ...x, quantity: q, amount: q * x.unitPrice } : x));
+          return prev.map((x) =>
+            x.productId === product._id
+              ? { ...x, quantity: q, amount: q * x.unitPrice, quantityOnHand: onHand }
+              : x
+          );
         }
-        return [...prev, { productId: product._id, productName: product.name, barcode: product.barcode, quantity: 1, unitPrice: product.price, amount: product.price }];
+        return [
+          ...prev,
+          {
+            productId: product._id,
+            productName: product.name,
+            barcode: product.barcode,
+            quantity: 1,
+            unitPrice: product.price,
+            amount: product.price,
+            quantityOnHand: onHand,
+          },
+        ];
       });
-      setToast({ message: `Added ${product.name}`, type: 'success' });
+      if (blocked) {
+        setToast({ message: `Only ${onHand} available for ${product.name}`, type: 'error' });
+      } else {
+        setToast({ message: `Added ${product.name}`, type: 'success' });
+      }
     } catch {
       setToast({ message: 'Product not found for barcode', type: 'error' });
     }
@@ -88,8 +118,14 @@ export default function Billing() {
     setCart((prev) =>
       prev.map((item) => {
         if (item.productId !== productId) return item;
-        const newQuantity = Math.max(1, item.quantity + delta);
-        if (newQuantity === item.quantity) return item;
+        const maxQty = item.quantityOnHand;
+        const newQuantity = Math.max(1, Math.min(maxQty, item.quantity + delta));
+        if (newQuantity === item.quantity) {
+          if (delta > 0 && item.quantity >= maxQty) {
+            setToast({ message: `Only ${maxQty} available for ${item.productName}`, type: 'error' });
+          }
+          return item;
+        }
         return { ...item, quantity: newQuantity, amount: newQuantity * item.unitPrice };
       }),
     );
@@ -312,6 +348,7 @@ export default function Billing() {
                 <thead>
                   <tr>
                     <th>Product</th>
+                    <th className="text-right">Available</th>
                     <th className="text-right">Qty</th>
                     <th className="text-right">Price</th>
                     <th className="text-right">Amount</th>
@@ -321,7 +358,13 @@ export default function Billing() {
                 <tbody>
                   {cart.map((i) => (
                     <tr key={i.productId}>
-                      <td>{i.productName}</td>
+                      <td>
+                        {i.productName}
+                        {i.quantityOnHand <= 0 && (
+                          <span className="ml-2 text-xs text-red-600">Out of stock</span>
+                        )}
+                      </td>
+                      <td className="text-right text-slate-600">{i.quantityOnHand}</td>
                       <td className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -336,7 +379,8 @@ export default function Billing() {
                           <button
                             type="button"
                             onClick={() => changeQuantity(i.productId, 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-primary-50 text-primary-700 hover:bg-primary-100"
+                            disabled={i.quantity >= i.quantityOnHand}
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-primary-50 text-primary-700 hover:bg-primary-100 disabled:opacity-40"
                             aria-label="Increase quantity"
                           >
                             +

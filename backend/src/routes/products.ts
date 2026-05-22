@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Product } from '../models/Product.js';
 import { generateBarcodeImage } from '../services/barcode.js';
+import { applyMovement } from '../services/stock.js';
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.post('/generate-barcode', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { barcode, name, price, unit, description } = req.body;
+    const { barcode, name, price, unit, description, openingQuantity, reorderLevel, costPrice } = req.body;
     if (!barcode || !name || price == null) {
       return res.status(400).json({ error: 'barcode, name, and price are required' });
     }
@@ -81,7 +82,20 @@ router.post('/', async (req, res) => {
       price: Number(price),
       unit: unit || 'pcs',
       description: description || '',
+      reorderLevel: reorderLevel != null ? Math.max(0, Number(reorderLevel)) : 0,
+      costPrice: costPrice != null && costPrice !== '' ? Math.max(0, Number(costPrice)) : undefined,
     });
+    const opening = openingQuantity != null ? Math.max(0, Number(openingQuantity)) : 0;
+    if (opening > 0) {
+      await applyMovement({
+        productId: String(product._id),
+        type: 'OPENING',
+        quantity: opening,
+        notes: 'Opening stock',
+      });
+      const updated = await Product.findById(product._id).lean();
+      return res.status(201).json(updated);
+    }
     res.status(201).json(product);
   } catch (e) {
     if ((e as { code?: number }).code === 11000) {
@@ -93,13 +107,17 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { barcode, name, price, unit, description } = req.body;
+    const { barcode, name, price, unit, description, reorderLevel, costPrice } = req.body;
     const update: Record<string, unknown> = {};
     if (barcode !== undefined) update.barcode = String(barcode).trim();
     if (name !== undefined) update.name = String(name).trim();
     if (price !== undefined) update.price = Number(price);
     if (unit !== undefined) update.unit = unit;
     if (description !== undefined) update.description = description;
+    if (reorderLevel !== undefined) update.reorderLevel = Math.max(0, Number(reorderLevel));
+    if (costPrice !== undefined) {
+      update.costPrice = costPrice === '' || costPrice == null ? undefined : Math.max(0, Number(costPrice));
+    }
     const product = await Product.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
     if (!product) return res.status(404).json({ error: 'Product not found' });
     res.json(product);

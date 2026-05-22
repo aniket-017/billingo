@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 
 type Report = {
@@ -6,17 +7,24 @@ type Report = {
   byDay: { _id: string; total: number; count: number }[];
 };
 
+type InventoryReport = Awaited<ReturnType<typeof api.reports.inventory>>;
+
 export default function Reports() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [data, setData] = useState<Report | null>(null);
+  const [inventoryData, setInventoryData] = useState<InventoryReport | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await api.reports.sales(from || undefined, to || undefined);
-      setData(res);
+      const [sales, inventory] = await Promise.all([
+        api.reports.sales(from || undefined, to || undefined),
+        api.reports.inventory(from || undefined, to || undefined),
+      ]);
+      setData(sales);
+      setInventoryData(inventory);
     } finally {
       setLoading(false);
     }
@@ -101,6 +109,83 @@ export default function Reports() {
               </table>
             </div>
             {data.byDay.length === 0 && <p className="mt-4 text-slate-500">No data for the selected range.</p>}
+          </>
+        ) : null}
+      </div>
+
+      <div className="card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold text-slate-700">Inventory summary</h3>
+          <Link to="/inventory" className="text-sm font-medium text-primary-700 hover:underline">
+            Open inventory →
+          </Link>
+        </div>
+        {loading ? (
+          <p className="text-slate-500">Loading…</p>
+        ) : inventoryData ? (
+          <>
+            <div className="mb-6 flex flex-wrap gap-6 rounded-xl border border-slate-200 bg-surface-50 p-4">
+              <div>
+                <p className="text-sm text-slate-600">Units on hand</p>
+                <p className="text-2xl font-bold text-slate-800">{inventoryData.stock.totalUnits}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Stock value (cost)</p>
+                <p className="text-2xl font-bold text-primary-700">₹{inventoryData.stock.totalStockValue.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Low stock items</p>
+                <p className="text-2xl font-bold text-amber-600">{inventoryData.stock.lowStockCount}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Out of stock</p>
+                <p className="text-2xl font-bold text-red-600">{inventoryData.stock.outOfStockCount}</p>
+              </div>
+            </div>
+            {inventoryData.movementSummary.length > 0 && (
+              <div className="mb-4">
+                <p className="mb-2 text-sm font-medium text-slate-600">Movements in date range</p>
+                <div className="flex flex-wrap gap-3">
+                  {inventoryData.movementSummary.map((m) => (
+                    <span key={m._id} className="rounded-lg bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                      {m._id}: {m.totalQuantity} units ({m.count} entries)
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="table-wrap max-h-64 overflow-y-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th className="text-right">On hand</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventoryData.products
+                    .filter((p) => p.status !== 'in_stock')
+                    .slice(0, 20)
+                    .map((p) => (
+                      <tr key={p._id}>
+                        <td>{p.name}</td>
+                        <td className="text-right">{p.quantityOnHand}</td>
+                        <td>
+                          <span
+                            className={`text-xs font-medium ${p.status === 'out' ? 'text-red-600' : 'text-amber-600'}`}
+                          >
+                            {p.status === 'out' ? 'Out' : 'Low'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            {inventoryData.products.filter((p) => p.status !== 'in_stock').length === 0 && (
+              <p className="text-slate-500">All products are adequately stocked.</p>
+            )}
           </>
         ) : null}
       </div>

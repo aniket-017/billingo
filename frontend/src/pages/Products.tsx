@@ -1,10 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
-import { api } from '../api/client';
+import { api, type Product } from '../api/client';
 import Toast from '../components/Toast';
 
-type Product = { _id: string; barcode: string; name: string; price: number; unit: string; description?: string };
+function stockStatusLabel(p: Product): { label: string; className: string } {
+  const onHand = p.quantityOnHand ?? 0;
+  const reorder = p.reorderLevel ?? 0;
+  if (onHand <= 0) return { label: 'Out', className: 'bg-red-100 text-red-800' };
+  if (reorder > 0 && onHand <= reorder) return { label: 'Low', className: 'bg-amber-100 text-amber-800' };
+  return { label: 'In stock', className: 'bg-green-100 text-green-800' };
+}
 
 // Labels per page in grid (6 columns x 10 rows = 60 labels)
 const LABELS_PER_PAGE = 60;
@@ -18,7 +25,16 @@ export default function Products() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState({ barcode: '', name: '', price: '', unit: 'pcs', description: '' });
+  const [form, setForm] = useState({
+    barcode: '',
+    name: '',
+    price: '',
+    unit: 'pcs',
+    description: '',
+    openingQuantity: '',
+    reorderLevel: '',
+    costPrice: '',
+  });
   const [labelDialog, setLabelDialog] = useState<{ product: Product; mode: 'barcode' | 'qr' } | null>(null);
   const [labelDialogQty, setLabelDialogQty] = useState('60');
   const [printQty, setPrintQty] = useState<Record<string, number>>({});
@@ -47,13 +63,22 @@ export default function Products() {
   useEffect(() => { load(); }, [q]);
 
   const openAdd = () => {
-    setForm({ barcode: '', name: '', price: '', unit: 'pcs', description: '' });
+    setForm({ barcode: '', name: '', price: '', unit: 'pcs', description: '', openingQuantity: '', reorderLevel: '', costPrice: '' });
     setEditing(null);
     setModal('add');
   };
 
   const openEdit = (p: Product) => {
-    setForm({ barcode: p.barcode, name: p.name, price: String(p.price), unit: p.unit || 'pcs', description: p.description || '' });
+    setForm({
+      barcode: p.barcode,
+      name: p.name,
+      price: String(p.price),
+      unit: p.unit || 'pcs',
+      description: p.description || '',
+      openingQuantity: '',
+      reorderLevel: p.reorderLevel != null ? String(p.reorderLevel) : '',
+      costPrice: p.costPrice != null ? String(p.costPrice) : '',
+    });
     setEditing(p);
     setModal('edit');
   };
@@ -77,11 +102,31 @@ export default function Products() {
       return;
     }
     try {
+      const reorderLevel = form.reorderLevel.trim() ? Math.max(0, parseFloat(form.reorderLevel)) : 0;
+      const costPrice = form.costPrice.trim() ? Math.max(0, parseFloat(form.costPrice)) : undefined;
       if (editing) {
-        await api.products.update(editing._id, { barcode, name, price, unit: form.unit, description: form.description });
+        await api.products.update(editing._id, {
+          barcode,
+          name,
+          price,
+          unit: form.unit,
+          description: form.description,
+          reorderLevel,
+          costPrice: costPrice ?? '',
+        });
         setToast({ message: 'Product updated', type: 'success' });
       } else {
-        await api.products.create({ barcode, name, price, unit: form.unit, description: form.description });
+        const openingQuantity = form.openingQuantity.trim() ? Math.max(0, parseFloat(form.openingQuantity)) : 0;
+        await api.products.create({
+          barcode,
+          name,
+          price,
+          unit: form.unit,
+          description: form.description,
+          openingQuantity,
+          reorderLevel,
+          costPrice,
+        });
         setToast({ message: 'Product added', type: 'success' });
       }
       setModal(null);
@@ -218,7 +263,7 @@ export default function Products() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Products</h2>
-          <p className="mt-1 text-sm text-slate-500">Manage items, print barcode / QR labels, and keep prices in sync.</p>
+          <p className="mt-1 text-sm text-slate-500">Manage items, stock levels, print labels, and keep prices in sync.</p>
         </div>
         <button type="button" onClick={openAdd} className="btn-primary px-4 py-2">
           Add product
@@ -270,6 +315,8 @@ export default function Products() {
                   <th>Barcode</th>
                   <th>Name</th>
                   <th className="text-right">Price</th>
+                  <th className="text-right">On hand</th>
+                  <th>Status</th>
                   <th>Unit</th>
                   <th className="w-24 text-center">Print qty</th>
                   <th></th>
@@ -281,6 +328,17 @@ export default function Products() {
                     <td className="font-mono text-sm">{p.barcode}</td>
                     <td>{p.name}</td>
                     <td className="text-right">{p.price.toFixed(2)}</td>
+                    <td className="text-right font-medium">{p.quantityOnHand ?? 0}</td>
+                    <td>
+                      {(() => {
+                        const s = stockStatusLabel(p);
+                        return (
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${s.className}`}>
+                            {s.label}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td>{p.unit}</td>
                     <td className="text-center">
                       <input
@@ -293,6 +351,12 @@ export default function Products() {
                       />
                     </td>
                     <td className="whitespace-nowrap text-right">
+                      <Link
+                        to={`/inventory?productId=${p._id}`}
+                        className="btn-ghost inline-flex items-center text-xs px-1 text-primary-700"
+                      >
+                        History
+                      </Link>
                       <button
                         type="button"
                         onClick={() => openEdit(p)}
@@ -378,6 +442,35 @@ export default function Products() {
                 placeholder="Description (optional)"
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              />
+              {!editing && (
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="Opening quantity (optional)"
+                  value={form.openingQuantity}
+                  onChange={(e) => setForm((f) => ({ ...f, openingQuantity: e.target.value }))}
+                />
+              )}
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="any"
+                placeholder="Reorder level (0 = no alert)"
+                value={form.reorderLevel}
+                onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))}
+              />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="Cost price (optional)"
+                value={form.costPrice}
+                onChange={(e) => setForm((f) => ({ ...f, costPrice: e.target.value }))}
               />
             </div>
             <div className="mt-6 flex justify-end gap-2">
