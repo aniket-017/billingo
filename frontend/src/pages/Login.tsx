@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
+import { useBusinessDisplayName } from '../contexts/BusinessSettingsContext';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,6 +13,7 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
+  const { displayName } = useBusinessDisplayName();
 
   useEffect(() => {
     if (!authLoading && user) navigate(from, { replace: true });
@@ -43,7 +45,7 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
-        <h1 className="mb-2 text-xl font-bold text-primary-700">Khatu Shyam Books Store</h1>
+        <h1 className="mb-2 text-xl font-bold text-primary-700">{displayName}</h1>
         <p className="mb-6 text-sm text-slate-600">Sign in to access the dashboard</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (

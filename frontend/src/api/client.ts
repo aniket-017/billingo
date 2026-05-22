@@ -6,6 +6,14 @@ function getAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export type BusinessSettings = {
+  businessName: string;
+  address: string;
+  phone: string;
+  email: string;
+  taxId: string;
+};
+
 export type Product = {
   _id: string;
   barcode: string;
@@ -136,6 +144,11 @@ export const api = {
       }),
     me: () =>
       request<{ id: string; email: string; name: string; role: string }>('/auth/me'),
+  },
+  settings: {
+    get: () => request<BusinessSettings>('/settings'),
+    update: (body: Partial<BusinessSettings>) =>
+      request<BusinessSettings>('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   },
   admin: {
     login: (email: string, password: string) =>

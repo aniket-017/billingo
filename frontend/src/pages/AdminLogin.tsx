@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
+import { useBusinessDisplayName } from '../contexts/BusinessSettingsContext';
 
 export default function AdminLogin() {
+  const { displayName } = useBusinessDisplayName();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -32,7 +34,7 @@ export default function AdminLogin() {
         <div className="mb-6 flex flex-col gap-1 md:flex-row md:items-baseline md:justify-between">
           <div>
             <h1 className="text-xl font-bold text-primary-700">Admin</h1>
-            <p className="text-sm text-slate-600">Khatu Shyam Books Store</p>
+            <p className="text-sm text-slate-600">{displayName}</p>
           </div>
           <p className="text-xs text-slate-500">Only trusted staff should have admin access.</p>
         </div>

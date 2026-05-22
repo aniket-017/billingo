@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
+import { useBusinessSettings } from '../contexts/BusinessSettingsContext';
 import Toast from '../components/Toast';
 
 type Customer = { _id: string; name: string; phone?: string; email?: string; address?: string };
@@ -18,6 +19,7 @@ type Invoice = {
 };
 
 export default function Invoices() {
+  const { settings } = useBusinessSettings();
   const [list, setList] = useState<Invoice[]>([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -57,6 +59,10 @@ export default function Invoices() {
     const win = window.open('', '_blank');
     if (!win) return;
     const customer = detail.customerId;
+    const storeName = settings.businessName.trim();
+    const storeAddress = settings.address.trim();
+    const contactLines = [settings.phone.trim(), settings.email.trim()].filter(Boolean);
+    if (settings.taxId.trim()) contactLines.push(`Tax ID: ${settings.taxId.trim()}`);
     const rows = detail.items
       .map(
         (i) =>
@@ -87,14 +93,14 @@ export default function Invoices() {
       </style></head><body>
       <div class="header">
         <div>
-          <div class="store-name">Khatu Shyam Books Store</div>
-          <div class="store-meta">Mhada Colony, Behind A S Club
-Chh. Shambhajinagar</div>
+          ${storeName ? `<div class="store-name">${storeName}</div>` : ''}
+          ${storeAddress ? `<div class="store-meta">${storeAddress.replace(/\n/g, '<br>')}</div>` : ''}
         </div>
-        <div class="contact">
-          <div class="label">Contact</div>
-          <div>+91 8421630880</div>
-        </div>
+        ${
+          contactLines.length
+            ? `<div class="contact"><div class="label">Contact</div>${contactLines.map((l) => `<div>${l}</div>`).join('')}</div>`
+            : ''
+        }
       </div>
 
       <h1>Invoice ${detail.invoiceNumber}</h1>

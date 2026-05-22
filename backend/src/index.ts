@@ -12,6 +12,7 @@ import reportsRouter from './routes/reports.js';
 import inventoryRouter from './routes/inventory.js';
 import authRouter from './routes/auth.js';
 import adminRouter from './routes/admin.js';
+import settingsRouter from './routes/settings.js';
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -31,6 +32,7 @@ app.use('/api/customers', customersRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/inventory', inventoryRouter);
+app.use('/api/settings', settingsRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

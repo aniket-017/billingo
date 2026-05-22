@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getBusinessSettings } from './businessSettings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Point projectRoot at the backend folder so PDFs are written to backend/invoices,
@@ -35,6 +36,7 @@ type InvoiceForPdf = {
 };
 
 export async function generateInvoicePdf(invoice: InvoiceForPdf): Promise<string> {
+  const settings = await getBusinessSettings();
   const invoicesDir = path.join(projectRoot, 'invoices');
   await fs.promises.mkdir(invoicesDir, { recursive: true });
 
@@ -54,16 +56,30 @@ export async function generateInvoicePdf(invoice: InvoiceForPdf): Promise<string
     let y = margin;
 
     // Store header
-    doc.fontSize(18).text('Khatu Shyam Books Store', margin, y, { align: 'left' });
+    if (settings.businessName) {
+      doc.fontSize(18).text(settings.businessName, margin, y, { align: 'left' });
+      y += 22;
+    }
     doc.fontSize(9);
-    y += 22;
-    doc.text('Mhada Colony, Behind A S Club', margin, y);
-    y += 12;
-    doc.text('Chh. Shambhajinagar', margin, y);
-
-    // Contact on right
-    doc.fontSize(10).text('Contact', pageWidth - margin - 120, margin, { align: 'right', width: 120 });
-    doc.fontSize(9).text('+91 8421630880', pageWidth - margin - 120, margin + 14, { align: 'right', width: 120 });
+    if (settings.address) {
+      settings.address.split('\n').forEach((line) => {
+        doc.text(line.trim(), margin, y);
+        y += 12;
+      });
+    }
+    const contactLines: string[] = [];
+    if (settings.phone) contactLines.push(settings.phone);
+    if (settings.email) contactLines.push(settings.email);
+    if (settings.taxId) contactLines.push(`Tax ID: ${settings.taxId}`);
+    if (contactLines.length) {
+      doc.fontSize(10).text('Contact', pageWidth - margin - 120, margin, { align: 'right', width: 120 });
+      doc.fontSize(9);
+      let contactY = margin + 14;
+      contactLines.forEach((line) => {
+        doc.text(line, pageWidth - margin - 120, contactY, { align: 'right', width: 120 });
+        contactY += 12;
+      });
+    }
 
     // Separator line
     y += 24;

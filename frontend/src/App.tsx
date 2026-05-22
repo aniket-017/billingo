@@ -7,6 +7,7 @@ import Customers from './pages/Customers';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Inventory from './pages/Inventory';
+import Settings from './pages/Settings';
 import Login from './pages/Login';
 import AdminLogin from './pages/AdminLogin';
 import { useAuth } from './contexts/AuthContext';
@@ -18,6 +19,7 @@ const nav = [
   { to: '/customers', label: 'Customers' },
   { to: '/invoices', label: 'Invoices' },
   { to: '/reports', label: 'Reports' },
+  { to: '/settings', label: 'Settings' },
 ];
 
 function DashboardLayout() {
@@ -78,6 +80,7 @@ export default function App() {
         <Route path="customers" element={<Customers />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   );

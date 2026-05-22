@@ -1,6 +1,3 @@
-import { fileURLToPath } from 'url';
-import path from 'path';
-
 type CustomerForWhatsApp = {
   name?: string;
   phone?: string;
@@ -21,6 +18,18 @@ const WHATSAPP_SHOP_CONTACT = process.env.WHATSAPP_SHOP_CONTACT || '+91 84216308
 const INVOICE_BASE_URL =
   process.env.INVOICE_BASE_URL ||
   `http://localhost:${process.env.PORT || 1970}`;
+
+// Fixed public host for local development (NODE_ENV=development) so WhatsApp can fetch the PDF.
+const DEV_INVOICE_BASE_URL = 'https://dayalsir.plan2automate.com';
+
+function getInvoicePdfLink(invoiceNumber: string): string {
+  console.log("process.env.NODE_ENV",process.env.NODE_ENV);
+  if (process.env.NODE_ENV === 'development') {
+    return `https://dayalsir.plan2automate.com/invoices/INV-1773223350379.pdf`;
+  }
+  const baseUrl = INVOICE_BASE_URL.replace(/\/+$/, '');
+  return `${baseUrl}/invoices/${encodeURIComponent(invoiceNumber)}.pdf`;
+}
 
 function normalizeIndianPhone(raw: string | undefined | null): string | null {
   if (!raw) return null;
@@ -62,9 +71,7 @@ export async function sendInvoiceWhatsApp(
   }
 
   const customer = invoice.customerId;
-  console.log("customer",customer);
   const customerPhone = customer?.phone;
-  console.log("customerPhone",customerPhone);
   const to = normalizeIndianPhone(customerPhone || '');
 
   if (!to) {
@@ -73,14 +80,8 @@ export async function sendInvoiceWhatsApp(
     );
     return;
   }
-  console.log("invoiceNumber",invoice.invoiceNumber);
 
-  const baseUrl = INVOICE_BASE_URL.replace(/\/+$/, '');
-  const invoiceLink = `${baseUrl}/invoices/${encodeURIComponent(
-    invoice.invoiceNumber
-  )}.pdf`;
-  // const invoiceLink = `https://dayalsir.plan2automate.com/invoices/INV-1773225282422.pdf`;
-  
+  const invoiceLink = getInvoicePdfLink(invoice.invoiceNumber);
 
   const body = {
     messaging_product: 'whatsapp',
@@ -159,4 +160,3 @@ export async function sendInvoiceWhatsApp(
     );
   }
 }
-
