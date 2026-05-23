@@ -1,6 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { api } from '../api/client';
-import { waitForWhatsAppDelivery, whatsAppSendFailureMessage } from '../utils/whatsappDelivery';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import Toast from '../components/Toast';
 
@@ -195,46 +194,16 @@ export default function Billing() {
     }
     setLoading(true);
     try {
-      const invoice = await api.invoices.create({
+      await api.invoices.create({
         customerId: customerId || undefined,
         items: cart,
         tax,
         notes: '',
         sendWhatsApp: true,
       });
-
+      setToast({ message: 'Sale completed', type: 'success' });
       setCart([]);
       setCustomerId('');
-
-      const send = invoice.whatsappSend;
-      if (!send?.ok) {
-        const detail = send && !send.ok ? whatsAppSendFailureMessage(send.reason) : 'WhatsApp send did not run.';
-        setToast({
-          message: `Sale completed. ${detail}`,
-          type: 'error',
-        });
-        return;
-      }
-
-      setToast({ message: 'Sale completed. Waiting for WhatsApp delivery…', type: 'success' });
-
-      const delivery = await waitForWhatsAppDelivery(invoice.id);
-      if (delivery === 'delivered' || delivery === 'read') {
-        setToast({
-          message: 'Sale completed and invoice delivered on WhatsApp',
-          type: 'success',
-        });
-      } else if (delivery === 'failed') {
-        setToast({
-          message: 'Sale completed. WhatsApp reported delivery failed.',
-          type: 'error',
-        });
-      } else {
-        setToast({
-          message: 'Sale completed. Invoice sent on WhatsApp (delivery not confirmed yet).',
-          type: 'success',
-        });
-      }
     } catch (e) {
       setToast({ message: (e as Error).message, type: 'error' });
     } finally {
@@ -452,7 +421,7 @@ export default function Billing() {
                   disabled={loading}
                   className="btn-primary px-6 py-2"
                 >
-                  {loading ? 'Sending / waiting for delivery…' : 'Complete sale and send invoice'}
+                  {loading ? 'Processing…' : 'Complete sale and send invoice'}
                 </button>
               </div>
             </div>
