@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".customers (
 
 CREATE INDEX IF NOT EXISTS idx_customers_name ON "__SCHEMA__".customers (name);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_phone_unique ON "__SCHEMA__".customers (phone)
+  WHERE phone <> '';
+
 CREATE TABLE IF NOT EXISTS "__SCHEMA__".invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_id UUID REFERENCES "__SCHEMA__".customers (id) ON DELETE SET NULL,

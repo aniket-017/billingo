@@ -17,6 +17,14 @@ function toNum(v: unknown): number {
   return Number(v);
 }
 
+function isPgUniqueViolation(err: unknown): boolean {
+  const code =
+    (err as { code?: string })?.code ??
+    (err as { meta?: { code?: string } })?.meta?.code ??
+    (err as { cause?: { code?: string } })?.cause?.code;
+  return code === '23505';
+}
+
 function mapProduct(row: Record<string, unknown>): TenantProduct {
   return {
     id: String(row.id),
@@ -291,6 +299,7 @@ export class TenantDb {
             AND (
               phone = ${phone}
               OR RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = ${phone}
+              OR regexp_replace(phone, '[^0-9]', '', 'g') = ${'91' + phone}
             )
           LIMIT 1
         `
@@ -300,6 +309,7 @@ export class TenantDb {
             AND (
               phone = ${phone}
               OR RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = ${phone}
+              OR regexp_replace(phone, '[^0-9]', '', 'g') = ${'91' + phone}
             )
           LIMIT 1
         `;
@@ -312,13 +322,28 @@ export class TenantDb {
     email?: string;
     address?: string;
   }): Promise<TenantCustomer> {
-    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
-      INSERT INTO ${Prisma.raw(`${this.s}.customers`)}
-        (name, phone, email, address)
-      VALUES (${data.name}, ${data.phone ?? ''}, ${data.email ?? ''}, ${data.address ?? ''})
-      RETURNING *
-    `;
-    return mapCustomer(rows[0]);
+    const phone = data.phone?.trim() ?? '';
+    if (phone) {
+      const existing = await this.findCustomerByPhone(phone);
+      if (existing) {
+        throw new Error(`PHONE_CONFLICT:${existing.name}`);
+      }
+    }
+    try {
+      const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+        INSERT INTO ${Prisma.raw(`${this.s}.customers`)}
+          (name, phone, email, address)
+        VALUES (${data.name}, ${phone}, ${data.email ?? ''}, ${data.address ?? ''})
+        RETURNING *
+      `;
+      return mapCustomer(rows[0]);
+    } catch (err) {
+      if (isPgUniqueViolation(err) && phone) {
+        const existing = await this.findCustomerByPhone(phone);
+        throw new Error(`PHONE_CONFLICT:${existing?.name ?? 'another customer'}`);
+      }
+      throw err;
+    }
   }
 
   async updateCustomer(
@@ -327,17 +352,32 @@ export class TenantDb {
   ): Promise<TenantCustomer | null> {
     const current = await this.getCustomer(id);
     if (!current) return null;
-    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
-      UPDATE ${Prisma.raw(`${this.s}.customers`)}
-      SET name = ${data.name ?? current.name},
-          phone = ${data.phone ?? current.phone},
-          email = ${data.email ?? current.email},
-          address = ${data.address ?? current.address},
-          updated_at = NOW()
-      WHERE id = ${id}::uuid
-      RETURNING *
-    `;
-    return rows[0] ? mapCustomer(rows[0]) : null;
+    const phone = data.phone !== undefined ? data.phone.trim() : current.phone;
+    if (phone) {
+      const existing = await this.findCustomerByPhone(phone, id);
+      if (existing) {
+        throw new Error(`PHONE_CONFLICT:${existing.name}`);
+      }
+    }
+    try {
+      const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+        UPDATE ${Prisma.raw(`${this.s}.customers`)}
+        SET name = ${data.name ?? current.name},
+            phone = ${phone},
+            email = ${data.email ?? current.email},
+            address = ${data.address ?? current.address},
+            updated_at = NOW()
+        WHERE id = ${id}::uuid
+        RETURNING *
+      `;
+      return rows[0] ? mapCustomer(rows[0]) : null;
+    } catch (err) {
+      if (isPgUniqueViolation(err) && phone) {
+        const existing = await this.findCustomerByPhone(phone, id);
+        throw new Error(`PHONE_CONFLICT:${existing?.name ?? 'another customer'}`);
+      }
+      throw err;
+    }
   }
 
   async deleteCustomer(id: string): Promise<boolean> {

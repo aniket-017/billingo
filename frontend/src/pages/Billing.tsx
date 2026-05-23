@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { api } from '../api/client';
-import { validateCustomerPhoneInput } from '../utils/customerPhone';
+import { normalizeCustomerPhone, validateCustomerPhoneInput } from '../utils/customerPhone';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import Toast from '../components/Toast';
 
@@ -154,6 +154,18 @@ export default function Billing() {
       setToast({ message: phoneCheck.message, type: 'error' });
       return;
     }
+    if (phoneCheck.phone) {
+      const duplicate = customers.find(
+        (c) => normalizeCustomerPhone(c.phone) === phoneCheck.phone
+      );
+      if (duplicate) {
+        setToast({
+          message: `A customer with this phone number already exists (${duplicate.name}).`,
+          type: 'error',
+        });
+        return;
+      }
+    }
     try {
       const res = await api.customers.create({
         name,
@@ -253,7 +265,7 @@ export default function Billing() {
 
         <div className="card space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold text-slate-700">Customer (optional)</h3>
+            <h3 className="font-semibold text-slate-700">Customer</h3>
             <div className="flex gap-2">
               <button
                 type="button"

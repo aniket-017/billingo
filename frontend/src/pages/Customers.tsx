@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
-import { validateCustomerPhoneInput } from '../utils/customerPhone';
+import { normalizeCustomerPhone, validateCustomerPhoneInput } from '../utils/customerPhone';
 import Toast from '../components/Toast';
 
 type Customer = { id: string; name: string; phone: string; email: string; address: string };
@@ -48,6 +48,19 @@ export default function Customers() {
     if (!phoneCheck.ok) {
       setToast({ message: phoneCheck.message, type: 'error' });
       return;
+    }
+    if (phoneCheck.phone) {
+      const duplicate = list.find(
+        (c) =>
+          c.id !== editing?.id && normalizeCustomerPhone(c.phone) === phoneCheck.phone
+      );
+      if (duplicate) {
+        setToast({
+          message: `A customer with this phone number already exists (${duplicate.name}).`,
+          type: 'error',
+        });
+        return;
+      }
     }
     const payload = {
       name,

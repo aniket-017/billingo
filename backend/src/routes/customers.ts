@@ -9,6 +9,16 @@ function phoneConflictMessage(existingName: string): string {
   return `A customer with this phone number already exists (${existingName}).`;
 }
 
+function mapCustomerError(e: unknown, res: import('express').Response): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (msg.startsWith('PHONE_CONFLICT:')) {
+    const name = msg.slice('PHONE_CONFLICT:'.length) || 'another customer';
+    res.status(409).json({ error: phoneConflictMessage(name) });
+    return true;
+  }
+  return false;
+}
+
 router.use(authMiddleware, tenantMiddleware);
 
 router.get('/', async (req, res) => {
@@ -57,6 +67,7 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json(customer);
   } catch (e) {
+    if (mapCustomerError(e, res)) return;
     res.status(500).json({ error: (e as Error).message });
   }
 });
@@ -92,6 +103,7 @@ router.put('/:id', async (req, res) => {
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
     res.json(customer);
   } catch (e) {
+    if (mapCustomerError(e, res)) return;
     res.status(500).json({ error: (e as Error).message });
   }
 });
