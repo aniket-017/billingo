@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { validateCustomerPhoneInput } from '../utils/customerPhone';
 import Toast from '../components/Toast';
 
 type Customer = { id: string; name: string; phone: string; email: string; address: string };
@@ -43,12 +44,23 @@ export default function Customers() {
       setToast({ message: 'Name is required', type: 'error' });
       return;
     }
+    const phoneCheck = validateCustomerPhoneInput(form.phone);
+    if (!phoneCheck.ok) {
+      setToast({ message: phoneCheck.message, type: 'error' });
+      return;
+    }
+    const payload = {
+      name,
+      phone: phoneCheck.phone,
+      email: form.email.trim(),
+      address: form.address.trim(),
+    };
     try {
       if (editing) {
-        await api.customers.update(editing.id, form);
+        await api.customers.update(editing.id, payload);
         setToast({ message: 'Customer updated', type: 'success' });
       } else {
-        await api.customers.create(form);
+        await api.customers.create(payload);
         setToast({ message: 'Customer added', type: 'success' });
       }
       setModal(null);
@@ -135,9 +147,14 @@ export default function Customers() {
               />
               <input
                 className="input"
-                placeholder="Phone"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="Phone (10 digits)"
                 value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))
+                }
               />
               <input
                 className="input"

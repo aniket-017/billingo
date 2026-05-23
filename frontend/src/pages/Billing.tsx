@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { api } from '../api/client';
+import { validateCustomerPhoneInput } from '../utils/customerPhone';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import Toast from '../components/Toast';
 
@@ -148,10 +149,15 @@ export default function Billing() {
       setToast({ message: 'Customer name is required', type: 'error' });
       return;
     }
+    const phoneCheck = validateCustomerPhoneInput(customerForm.phone);
+    if (!phoneCheck.ok) {
+      setToast({ message: phoneCheck.message, type: 'error' });
+      return;
+    }
     try {
       const res = await api.customers.create({
         name,
-        phone: customerForm.phone.trim() || undefined,
+        phone: phoneCheck.phone || undefined,
         email: customerForm.email.trim() || undefined,
         address: customerForm.address.trim() || undefined,
       });
@@ -442,20 +448,28 @@ export default function Billing() {
               />
               <input
                 className="input"
-                placeholder="Phone (optional)"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="Phone (10 digits)"
                 value={customerForm.phone}
-                onChange={(e) => setCustomerForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(e) =>
+                  setCustomerForm((f) => ({
+                    ...f,
+                    phone: e.target.value.replace(/\D/g, '').slice(0, 10),
+                  }))
+                }
               />
               <input
                 className="input"
                 type="email"
-                placeholder="Email (optional)"
+                placeholder="Email"
                 value={customerForm.email}
                 onChange={(e) => setCustomerForm((f) => ({ ...f, email: e.target.value }))}
               />
               <input
                 className="input"
-                placeholder="Address (optional)"
+                placeholder="Address"
                 value={customerForm.address}
                 onChange={(e) => setCustomerForm((f) => ({ ...f, address: e.target.value }))}
               />

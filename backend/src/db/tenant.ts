@@ -281,6 +281,31 @@ export class TenantDb {
     return rows[0] ? mapCustomer(rows[0]) : null;
   }
 
+  async findCustomerByPhone(phone: string, excludeId?: string): Promise<TenantCustomer | null> {
+    if (!phone) return null;
+    const rows = excludeId
+      ? await prisma.$queryRaw<Record<string, unknown>[]>`
+          SELECT * FROM ${Prisma.raw(`${this.s}.customers`)}
+          WHERE phone <> ''
+            AND id <> ${excludeId}::uuid
+            AND (
+              phone = ${phone}
+              OR RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = ${phone}
+            )
+          LIMIT 1
+        `
+      : await prisma.$queryRaw<Record<string, unknown>[]>`
+          SELECT * FROM ${Prisma.raw(`${this.s}.customers`)}
+          WHERE phone <> ''
+            AND (
+              phone = ${phone}
+              OR RIGHT(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = ${phone}
+            )
+          LIMIT 1
+        `;
+    return rows[0] ? mapCustomer(rows[0]) : null;
+  }
+
   async createCustomer(data: {
     name: string;
     phone?: string;

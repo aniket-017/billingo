@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { authMiddleware, tenantMiddleware } from '../middleware/auth.js';
 import { getTenantDb } from '../middleware/tenant.js';
+import { parseCustomerPhoneInput } from '../utils/customerPhone.js';
 
 const router = Router();
+
+function phoneConflictMessage(existingName: string): string {
+  return `A customer with this phone number already exists (${existingName}).`;
+}
 
 router.use(authMiddleware, tenantMiddleware);
 
@@ -30,9 +35,23 @@ router.post('/', async (req, res) => {
   try {
     const { name, phone, email, address } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
-    const customer = await getTenantDb(req).createCustomer({
+
+    const phoneResult = parseCustomerPhoneInput(phone);
+    if (!phoneResult.ok) {
+      return res.status(400).json({ error: phoneResult.error });
+    }
+
+    const db = getTenantDb(req);
+    if (phoneResult.phone) {
+      const existing = await db.findCustomerByPhone(phoneResult.phone);
+      if (existing) {
+        return res.status(409).json({ error: phoneConflictMessage(existing.name) });
+      }
+    }
+
+    const customer = await db.createCustomer({
       name: String(name).trim(),
-      phone: phone || '',
+      phone: phoneResult.phone,
       email: email || '',
       address: address || '',
     });
@@ -45,9 +64,28 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { name, phone, email, address } = req.body;
-    const customer = await getTenantDb(req).updateCustomer(req.params.id, {
+    const db = getTenantDb(req);
+    const current = await db.getCustomer(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Customer not found' });
+
+    let normalizedPhone: string | undefined;
+    if (phone !== undefined) {
+      const phoneResult = parseCustomerPhoneInput(phone);
+      if (!phoneResult.ok) {
+        return res.status(400).json({ error: phoneResult.error });
+      }
+      normalizedPhone = phoneResult.phone;
+      if (normalizedPhone) {
+        const existing = await db.findCustomerByPhone(normalizedPhone, req.params.id);
+        if (existing) {
+          return res.status(409).json({ error: phoneConflictMessage(existing.name) });
+        }
+      }
+    }
+
+    const customer = await db.updateCustomer(req.params.id, {
       ...(name !== undefined && { name: String(name).trim() }),
-      ...(phone !== undefined && { phone }),
+      ...(normalizedPhone !== undefined && { phone: normalizedPhone }),
       ...(email !== undefined && { email }),
       ...(address !== undefined && { address }),
     });
