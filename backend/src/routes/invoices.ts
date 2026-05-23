@@ -76,7 +76,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'items array is required' });
     }
 
-    const schemaName = getTenant(req).schemaName;
+    const { businessId, schemaName } = getTenant(req);
     const db = getTenantDb(req);
     const subtotal = items.reduce((sum, i) => sum + Number(i.amount), 0);
     const total = subtotal + Number(tax);
@@ -134,7 +134,7 @@ router.post('/', async (req, res) => {
     const populated = await db.getInvoice(invoice.id);
     if (populated) {
       try {
-        await generateInvoicePdf(schemaName, {
+        await generateInvoicePdf(businessId, schemaName, {
           id: populated.id,
           invoiceNumber: populated.invoiceNumber,
           date: populated.date,
@@ -157,7 +157,10 @@ router.post('/', async (req, res) => {
       }
       if (sendWhatsApp) {
         try {
-          await sendInvoiceWhatsApp(populated as Parameters<typeof sendInvoiceWhatsApp>[0]);
+          await sendInvoiceWhatsApp(
+            businessId,
+            populated as Parameters<typeof sendInvoiceWhatsApp>[1]
+          );
         } catch (waError) {
           console.error('Failed to send invoice via WhatsApp', waError);
         }

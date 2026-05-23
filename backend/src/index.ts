@@ -19,7 +19,6 @@ import settingsRouter from './routes/settings.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
-const projectRoot = path.join(__dirname, '..');
 const app = express();
 
 const PORT = process.env.PORT || 1975;
@@ -48,23 +47,6 @@ app.use('/api/inventory', inventoryRouter);
 app.use('/api/settings', settingsRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-
-const invoicesDir = path.join(projectRoot, 'invoices');
-if (!fs.existsSync(invoicesDir)) {
-  fs.mkdirSync(invoicesDir, { recursive: true });
-}
-
-app.get('/invoices/:fileName', (req, res) => {
-  const fileName = req.params.fileName;
-  if (!/^[A-Za-z0-9_.-]+$/.test(fileName)) {
-    return res.status(400).send('Invalid file name');
-  }
-  const fullPath = path.join(invoicesDir, fileName);
-  if (!fs.existsSync(fullPath)) {
-    return res.status(404).send('Invoice not found');
-  }
-  res.download(fullPath, fileName);
-});
 
 const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {

@@ -1,3 +1,5 @@
+import { getInvoicePresignedUrl, validateS3Config } from './s3.js';
+
 type CustomerForWhatsApp = {
   name?: string;
   phone?: string;
@@ -14,49 +16,28 @@ const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 const WHATSAPP_TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'bookstore_invoice';
 const WHATSAPP_SHOP_CONTACT = process.env.WHATSAPP_SHOP_CONTACT || '+91 8421630880';
 
-// Base URL where invoices are publicly accessible, e.g. https://dayalsir.plan2automate.com
-// Should point to the same host that serves /invoices/:fileName from the backend.
-const INVOICE_BASE_URL =
-  process.env.INVOICE_BASE_URL ||
-  `http://localhost:${process.env.PORT || 1975}`;
-
-// Fixed public host for local development (NODE_ENV=development) so WhatsApp can fetch the PDF.
-const DEV_INVOICE_BASE_URL = 'https://dayalsir.plan2automate.com';
-
-function getInvoicePdfLink(invoiceNumber: string): string {
-  console.log("process.env.NODE_ENV",process.env.NODE_ENV);
-  if (process.env.NODE_ENV === 'development') {
-    return `https://dayalsir.plan2automate.com/invoices/INV-1773223350379.pdf`;
-  }
-  const baseUrl = INVOICE_BASE_URL.replace(/\/+$/, '');
-  return `${baseUrl}/invoices/${encodeURIComponent(invoiceNumber)}.pdf`;
-}
-
 function normalizeIndianPhone(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, '');
   if (!digits) return null;
 
-  // If already starts with 91 and length 12 (91 + 10 digits), keep as is
   if (digits.startsWith('91') && digits.length === 12) {
     return digits;
   }
 
-  // If plain 10-digit mobile number, prepend 91
   if (digits.length === 10) {
     return `91${digits}`;
   }
 
-  // If starts with 0 and then 10-digit number, strip leading 0 and prepend 91
   if (digits.length === 11 && digits.startsWith('0')) {
     return `91${digits.slice(1)}`;
   }
 
-  // Fallback: return digits as-is
   return digits;
 }
 
 export async function sendInvoiceWhatsApp(
+  businessId: string,
   invoice: InvoiceForWhatsApp
 ): Promise<void> {
   if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
@@ -66,8 +47,10 @@ export async function sendInvoiceWhatsApp(
     return;
   }
 
-  if (!INVOICE_BASE_URL) {
-    console.warn('INVOICE_BASE_URL not set; skipping WhatsApp send.');
+  if (!validateS3Config()) {
+    console.warn(
+      'S3 config missing (AWS_REGION, AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY); skipping WhatsApp send.'
+    );
     return;
   }
 
@@ -82,7 +65,16 @@ export async function sendInvoiceWhatsApp(
     return;
   }
 
-  const invoiceLink = getInvoicePdfLink(invoice.invoiceNumber);
+  let invoiceLink: string;
+  try {
+    invoiceLink = await getInvoicePresignedUrl(businessId, invoice.invoiceNumber);
+  } catch (err) {
+    console.error(
+      `Failed to generate presigned URL for invoice ${invoice.invoiceNumber}:`,
+      err
+    );
+    return;
+  }
 
   const body = {
     messaging_product: 'whatsapp',
