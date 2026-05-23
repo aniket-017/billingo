@@ -103,6 +103,14 @@ router.post('/', async (req, res) => {
       throw stockErr;
     }
 
+    const productCosts = new Map<string, number | null>();
+    for (const item of items) {
+      if (!productCosts.has(item.productId)) {
+        const product = await db.getProduct(item.productId);
+        productCosts.set(item.productId, product?.costPrice ?? null);
+      }
+    }
+
     let invoice: Awaited<ReturnType<typeof db.createInvoice>>;
     try {
       invoice = await db.createInvoice({
@@ -121,6 +129,7 @@ router.post('/', async (req, res) => {
           barcode: i.barcode,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
+          unitCost: productCosts.get(i.productId) ?? null,
           amount: i.amount,
         })),
       });

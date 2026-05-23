@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".invoice_items (
   barcode TEXT NOT NULL,
   quantity INTEGER NOT NULL,
   unit_price DECIMAL(12, 2) NOT NULL,
+  unit_cost DECIMAL(12, 2),
   amount DECIMAL(12, 2) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 
 type Report = {
-  summary: { totalSales: number; count: number };
-  byDay: { day: string; total: number; count: number }[];
+  summary: { totalSales: number; count: number; revenue: number; cogs: number; profit: number };
+  byDay: { day: string; total: number; count: number; revenue: number; cogs: number; profit: number }[];
 };
 
 type InventoryReport = Awaited<ReturnType<typeof api.reports.inventory>>;
@@ -34,8 +34,15 @@ export default function Reports() {
 
   const exportCsv = () => {
     if (!data) return;
-    const headers = ['Date', 'Invoices', 'Total'];
-    const rows = data.byDay.map((d) => [d.day, d.count, d.total.toFixed(2)]);
+    const headers = ['Date', 'Invoices', 'Total', 'Revenue', 'COGS', 'Profit'];
+    const rows = data.byDay.map((d) => [
+      d.day,
+      d.count,
+      d.total.toFixed(2),
+      d.revenue.toFixed(2),
+      d.cogs.toFixed(2),
+      d.profit.toFixed(2),
+    ]);
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -80,8 +87,24 @@ export default function Reports() {
           <>
             <div className="mb-6 flex flex-wrap gap-6 rounded-xl border border-slate-200 bg-surface-50 p-4">
               <div>
-                <p className="text-sm text-slate-600">Total sales</p>
-                <p className="text-2xl font-bold text-primary-700">{data.summary.totalSales.toFixed(2)}</p>
+                <p className="text-sm text-slate-600">Total sales (incl. tax)</p>
+                <p className="text-2xl font-bold text-primary-700">₹{data.summary.totalSales.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Gross profit</p>
+                <p
+                  className={`text-2xl font-bold ${data.summary.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                >
+                  ₹{data.summary.profit.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Revenue (line items)</p>
+                <p className="text-2xl font-bold text-slate-800">₹{data.summary.revenue.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">Cost of goods sold</p>
+                <p className="text-2xl font-bold text-slate-600">₹{data.summary.cogs.toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-600">Number of invoices</p>
@@ -95,6 +118,9 @@ export default function Reports() {
                     <th>Date</th>
                     <th className="text-right">Invoices</th>
                     <th className="text-right">Total</th>
+                    <th className="text-right">Revenue</th>
+                    <th className="text-right">COGS</th>
+                    <th className="text-right">Profit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -102,7 +128,14 @@ export default function Reports() {
                     <tr key={d.day}>
                       <td>{d.day}</td>
                       <td className="text-right">{d.count}</td>
-                      <td className="text-right font-medium">{d.total.toFixed(2)}</td>
+                      <td className="text-right">{d.total.toFixed(2)}</td>
+                      <td className="text-right">{d.revenue.toFixed(2)}</td>
+                      <td className="text-right text-slate-600">{d.cogs.toFixed(2)}</td>
+                      <td
+                        className={`text-right font-medium ${d.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}
+                      >
+                        {d.profit.toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -31,6 +31,8 @@ export interface ApplyMovementInput {
   reference?: MovementReference;
   notes?: string;
   user?: AuthPayload;
+  /** Purchase cost per unit when receiving stock; updates weighted average product cost. */
+  costPrice?: number;
 }
 
 export interface SaleLineItem {
@@ -45,9 +47,21 @@ function movementDelta(type: StockMovementType, quantity: number): number {
   return quantity;
 }
 
+function weightedAverageCost(
+  oldQty: number,
+  oldCost: number | null,
+  recvQty: number,
+  recvCost: number
+): number {
+  const totalQty = oldQty + recvQty;
+  if (totalQty <= 0) return recvCost;
+  const prior = (oldCost ?? 0) * oldQty;
+  return (prior + recvQty * recvCost) / totalQty;
+}
+
 export async function applyMovement(schemaName: string, input: ApplyMovementInput) {
   const db = createTenantDb(schemaName);
-  const { productId, type, quantity, date, reference, notes, user } = input;
+  const { productId, type, quantity, date, reference, notes, user, costPrice } = input;
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Error('quantity must be a positive number');
   }
@@ -89,7 +103,20 @@ export async function applyMovement(schemaName: string, input: ApplyMovementInpu
     createdByName: user?.name ?? '',
   });
 
-  return { product, movement };
+  let updatedProduct = product;
+  if (
+    type === 'STOCK_IN' &&
+    costPrice != null &&
+    Number.isFinite(costPrice) &&
+    costPrice >= 0
+  ) {
+    const oldQty = existing.quantityOnHand ?? 0;
+    const newCost = weightedAverageCost(oldQty, existing.costPrice, quantity, costPrice);
+    const withCost = await db.updateProduct(productId, { costPrice: newCost });
+    if (withCost) updatedProduct = withCost;
+  }
+
+  return { product: updatedProduct, movement };
 }
 
 export async function applyAdjustment(

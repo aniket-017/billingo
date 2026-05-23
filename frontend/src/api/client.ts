@@ -117,7 +117,14 @@ export const api = {
       request<{ items: StockMovement[]; total: number; page: number; pageSize: number; totalPages: number }>(
         `/inventory/movements${params ? '?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])).toString() : ''}`
       ),
-    stockIn: (body: { productId: string; quantity: number; date?: string; notes?: string; referenceLabel?: string }) =>
+    stockIn: (body: {
+      productId: string;
+      quantity: number;
+      date?: string;
+      notes?: string;
+      referenceLabel?: string;
+      costPrice?: number;
+    }) =>
       request<{ product: Product; movement: StockMovement }>('/inventory/stock-in', { method: 'POST', body: JSON.stringify(body) }),
     adjust: (body: { productId: string; quantityDelta: number; date?: string; notes?: string }) =>
       request<{ product: Product; movement: StockMovement }>('/inventory/adjust', { method: 'POST', body: JSON.stringify(body) }),
@@ -163,7 +170,10 @@ export const api = {
   },
   reports: {
     sales: (from?: string, to?: string) =>
-      request<{ summary: { totalSales: number; count: number }; byDay: { day: string; total: number; count: number }[] }>(
+      request<{
+        summary: { totalSales: number; count: number; revenue: number; cogs: number; profit: number };
+        byDay: { day: string; total: number; count: number; revenue: number; cogs: number; profit: number }[];
+      }>(
         `/reports/sales${from || to ? '?' + new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString() : ''}`
       ),
     inventory: (from?: string, to?: string) =>

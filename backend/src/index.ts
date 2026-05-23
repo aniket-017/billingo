@@ -18,6 +18,7 @@ import settingsRouter from './routes/settings.js';
 import whatsappWebhookRouter from './routes/whatsappWebhook.js';
 import { migrateTenantWhatsAppColumns } from './db/migrateTenantWhatsApp.js';
 import { migrateTenantCustomerPhoneUnique } from './db/migrateTenantCustomerPhone.js';
+import { migrateTenantInvoiceItemCost } from './db/migrateTenantInvoiceItemCost.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -66,6 +67,7 @@ async function start() {
   await connectDb();
   await migrateTenantWhatsAppColumns();
   await migrateTenantCustomerPhoneUnique();
+  await migrateTenantInvoiceItemCost();
   await seedAdmin();
   app.listen(PORT, () => {
     console.log(`Barcode Billing API running at http://localhost:${PORT}`);

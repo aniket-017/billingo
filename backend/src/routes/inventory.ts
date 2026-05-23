@@ -84,15 +84,20 @@ router.get('/movements/product/:productId', async (req, res) => {
 
 router.post('/stock-in', async (req, res) => {
   try {
-    const { productId, quantity, date, notes, referenceLabel } = req.body as {
+    const { productId, quantity, date, notes, referenceLabel, costPrice } = req.body as {
       productId: string;
       quantity: number;
       date?: string;
       notes?: string;
       referenceLabel?: string;
+      costPrice?: number;
     };
     if (!productId || quantity == null) {
       return res.status(400).json({ error: 'productId and quantity are required' });
+    }
+    const parsedCost = costPrice != null ? Math.max(0, Number(costPrice)) : undefined;
+    if (parsedCost != null && !Number.isFinite(parsedCost)) {
+      return res.status(400).json({ error: 'Invalid cost price' });
     }
     const result = await applyMovement(getTenant(req).schemaName, {
       productId,
@@ -102,6 +107,7 @@ router.post('/stock-in', async (req, res) => {
       reference: { referenceType: 'manual', referenceLabel: referenceLabel ?? '' },
       notes: notes ?? '',
       user: getUser(req as { user?: AuthPayload }),
+      costPrice: parsedCost,
     });
     res.status(201).json(result);
   } catch (e) {

@@ -43,6 +43,7 @@ export default function Inventory() {
   const [stockInForm, setStockInForm] = useState({
     productId: filterProductId,
     quantity: '',
+    costPrice: '',
     date: todayISO(),
     notes: '',
     referenceLabel: '',
@@ -85,14 +86,25 @@ export default function Inventory() {
     }
   }, [loadProducts, loadSummary, loadMovements]);
 
+  const onStockInProductChange = (productId: string) => {
+    const product = products.find((p) => p.id === productId);
+    setStockInForm((f) => ({
+      ...f,
+      productId,
+      costPrice: product?.costPrice != null ? String(product.costPrice) : '',
+    }));
+  };
+
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
   useEffect(() => {
-    setStockInForm((f) => ({ ...f, productId: filterProductId || f.productId }));
+    if (filterProductId) {
+      onStockInProductChange(filterProductId);
+    }
     setAdjustForm((f) => ({ ...f, productId: filterProductId || f.productId }));
-  }, [filterProductId]);
+  }, [filterProductId, products]);
 
   const submitStockIn = async () => {
     const quantity = parseFloat(stockInForm.quantity);
@@ -100,16 +112,23 @@ export default function Inventory() {
       setToast({ message: 'Select a product and enter quantity > 0', type: 'error' });
       return;
     }
+    const costPrice =
+      stockInForm.costPrice.trim() === '' ? undefined : parseFloat(stockInForm.costPrice);
+    if (costPrice != null && (!Number.isFinite(costPrice) || costPrice < 0)) {
+      setToast({ message: 'Enter a valid cost price', type: 'error' });
+      return;
+    }
     try {
       await api.inventory.stockIn({
         productId: stockInForm.productId,
         quantity,
+        costPrice,
         date: stockInForm.date,
         notes: stockInForm.notes,
         referenceLabel: stockInForm.referenceLabel,
       });
       setToast({ message: 'Stock received', type: 'success' });
-      setStockInForm((f) => ({ ...f, quantity: '', notes: '', referenceLabel: '' }));
+      setStockInForm((f) => ({ ...f, quantity: '', costPrice: '', notes: '', referenceLabel: '' }));
       await loadAll();
     } catch (e) {
       setToast({ message: (e as Error).message, type: 'error' });
@@ -212,7 +231,7 @@ export default function Inventory() {
           <select
             className="input"
             value={stockInForm.productId}
-            onChange={(e) => setStockInForm((f) => ({ ...f, productId: e.target.value }))}
+            onChange={(e) => onStockInProductChange(e.target.value)}
           >
             <option value="">Select product</option>
             {products.map((p) => (
@@ -229,6 +248,15 @@ export default function Inventory() {
             placeholder="Quantity received"
             value={stockInForm.quantity}
             onChange={(e) => setStockInForm((f) => ({ ...f, quantity: e.target.value }))}
+          />
+          <input
+            type="number"
+            min={0}
+            step="any"
+            className="input"
+            placeholder="Cost price per unit"
+            value={stockInForm.costPrice}
+            onChange={(e) => setStockInForm((f) => ({ ...f, costPrice: e.target.value }))}
           />
           <input
             type="date"

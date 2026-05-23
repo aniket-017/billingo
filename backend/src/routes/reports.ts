@@ -17,11 +17,7 @@ router.get('/sales', async (req, res) => {
     );
     res.json({
       summary: report.summary,
-      byDay: report.byDay.map((d) => ({
-        day: d.day,
-        total: d.total,
-        count: d.count,
-      })),
+      byDay: report.byDay,
     });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });

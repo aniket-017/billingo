@@ -38,6 +38,7 @@ export type TenantInvoiceItem = {
   barcode: string;
   quantity: number;
   unitPrice: number;
+  unitCost: number | null;
   amount: number;
 };
 

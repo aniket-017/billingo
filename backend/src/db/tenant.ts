@@ -528,6 +528,7 @@ export class TenantDb {
       barcode: String(r.barcode),
       quantity: Number(r.quantity),
       unitPrice: toNum(r.unit_price),
+      unitCost: r.unit_cost != null ? toNum(r.unit_cost) : null,
       amount: toNum(r.amount),
     }));
     return invoice;
@@ -613,6 +614,7 @@ export class TenantDb {
       barcode: string;
       quantity: number;
       unitPrice: number;
+      unitCost?: number | null;
       amount: number;
     }[];
   }): Promise<TenantInvoice> {
@@ -637,7 +639,7 @@ export class TenantDb {
       for (const item of data.items) {
         await tx.$executeRaw`
           INSERT INTO ${Prisma.raw(`${this.s}.invoice_items`)}
-            (invoice_id, product_id, product_name, barcode, quantity, unit_price, amount)
+            (invoice_id, product_id, product_name, barcode, quantity, unit_price, unit_cost, amount)
           VALUES (
             ${id}::uuid,
             ${item.productId}::uuid,
@@ -645,6 +647,7 @@ export class TenantDb {
             ${item.barcode},
             ${item.quantity},
             ${item.unitPrice},
+            ${item.unitCost ?? null},
             ${item.amount}
           )
         `;
@@ -661,38 +664,68 @@ export class TenantDb {
 
   // --- Reports ---
   async salesReport(from?: Date, to?: Date) {
-    const conditions: Prisma.Sql[] = [];
-    if (from) conditions.push(Prisma.sql`date >= ${from}`);
-    if (to) conditions.push(Prisma.sql`date <= ${to}`);
-    const where =
-      conditions.length > 0
-        ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
+    const invoiceConditions: Prisma.Sql[] = [];
+    if (from) invoiceConditions.push(Prisma.sql`i.date >= ${from}`);
+    if (to) invoiceConditions.push(Prisma.sql`i.date <= ${to}`);
+    const invoiceWhere =
+      invoiceConditions.length > 0
+        ? Prisma.sql`WHERE ${Prisma.join(invoiceConditions, ' AND ')}`
         : Prisma.empty;
 
-    const summaryRows = await prisma.$queryRaw<{ total_sales: unknown; count: bigint }[]>`
-      SELECT COALESCE(SUM(total), 0) AS total_sales, COUNT(*)::bigint AS count
-      FROM ${Prisma.raw(`${this.s}.invoices`)}
-      ${where}
+    const summaryRows = await prisma.$queryRaw<
+      { total_sales: unknown; count: bigint; revenue: unknown; cogs: unknown }[]
+    >`
+      SELECT
+        COALESCE(SUM(i.total), 0) AS total_sales,
+        COUNT(DISTINCT i.id)::bigint AS count,
+        COALESCE(SUM(ii.amount), 0) AS revenue,
+        COALESCE(SUM(ii.quantity * COALESCE(ii.unit_cost, p.cost_price, 0)), 0) AS cogs
+      FROM ${Prisma.raw(`${this.s}.invoices`)} i
+      LEFT JOIN ${Prisma.raw(`${this.s}.invoice_items`)} ii ON ii.invoice_id = i.id
+      LEFT JOIN ${Prisma.raw(`${this.s}.products`)} p ON p.id = ii.product_id
+      ${invoiceWhere}
     `;
-    const byDayRows = await prisma.$queryRaw<{ day: string; total: unknown; count: bigint }[]>`
-      SELECT TO_CHAR(date, 'YYYY-MM-DD') AS day,
-             COALESCE(SUM(total), 0) AS total,
-             COUNT(*)::bigint AS count
-      FROM ${Prisma.raw(`${this.s}.invoices`)}
-      ${where}
-      GROUP BY TO_CHAR(date, 'YYYY-MM-DD')
+
+    const byDayRows = await prisma.$queryRaw<
+      { day: string; total: unknown; count: bigint; revenue: unknown; cogs: unknown }[]
+    >`
+      SELECT
+        TO_CHAR(i.date, 'YYYY-MM-DD') AS day,
+        COALESCE(SUM(i.total), 0) AS total,
+        COUNT(DISTINCT i.id)::bigint AS count,
+        COALESCE(SUM(ii.amount), 0) AS revenue,
+        COALESCE(SUM(ii.quantity * COALESCE(ii.unit_cost, p.cost_price, 0)), 0) AS cogs
+      FROM ${Prisma.raw(`${this.s}.invoices`)} i
+      LEFT JOIN ${Prisma.raw(`${this.s}.invoice_items`)} ii ON ii.invoice_id = i.id
+      LEFT JOIN ${Prisma.raw(`${this.s}.products`)} p ON p.id = ii.product_id
+      ${invoiceWhere}
+      GROUP BY TO_CHAR(i.date, 'YYYY-MM-DD')
       ORDER BY day ASC
     `;
+
+    const revenue = toNum(summaryRows[0]?.revenue);
+    const cogs = toNum(summaryRows[0]?.cogs);
+
     return {
       summary: {
         totalSales: toNum(summaryRows[0]?.total_sales),
         count: Number(summaryRows[0]?.count ?? 0),
+        revenue,
+        cogs,
+        profit: revenue - cogs,
       },
-      byDay: byDayRows.map((r) => ({
-        day: String(r.day),
-        total: toNum(r.total),
-        count: Number(r.count),
-      })),
+      byDay: byDayRows.map((r) => {
+        const dayRevenue = toNum(r.revenue);
+        const dayCogs = toNum(r.cogs);
+        return {
+          day: String(r.day),
+          total: toNum(r.total),
+          count: Number(r.count),
+          revenue: dayRevenue,
+          cogs: dayCogs,
+          profit: dayRevenue - dayCogs,
+        };
+      }),
     };
   }
 
