@@ -49,29 +49,29 @@ jobs:
             echo "🔐 Starting deployment to remote server"
            
 
-            if [ -f ~/Invoice/backend/.env ]; then
+            if [ -f ~/billingo/backend/.env ]; then
              echo "📁 Backing up existing .env file"
-             cp ~/Invoice/backend/.env ~/.env.bak
+             cp ~/billingo/backend/.env ~/.env.bak
            fi
 
-           if [ -d ~/Invoice ]; then
+           if [ -d ~/billingo ]; then
              echo "📂 Pulling latest changes from Git"
-             cd ~/Invoice
+             cd ~/billingo
              git reset --hard
              git pull origin main
            else
              echo "📂 Cloning repository"
-             git clone https://github.com/aniket-017/Invoice.git ~/Invoice 
-             cd ~/Invoice 
+             git clone https://github.com/aniket-017/billingo.git ~/billingo 
+             cd ~/billingo 
            fi
 
            if [ -f ~/.env.bak ]; then
              echo "♻️ Restoring .env from backup"
-             mv ~/.env.bak ~/Invoice/backend/.env
+             mv ~/.env.bak ~/billingo/backend/.env
            fi
 
            echo "📦 Installing backend dependencies"
-           cd ~/Invoice/backend
+           cd ~/billingo/backend
            npm install
            npx prisma migrate deploy
            npm run build
@@ -84,12 +84,12 @@ jobs:
 
            cd ../backend
            echo "🚀 Starting or restarting PM2 process"
-           if pm2 list | grep -q "Invoice"; then
-             echo "🔁 Restarting Invoice"
+           if pm2 list | grep -q "billingo"; then
+             echo "🔁 Restarting billingo"
              pm2 restart    
            else
-             echo "▶️ Starting Invoice"
-             pm2 start npm --name "Invoice" -- start
+             echo "▶️ Starting billingo"
+             pm2 start npm --name "billingo" -- start
            fi
 
            echo "📋 PM2 process list:"
