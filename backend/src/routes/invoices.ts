@@ -103,7 +103,7 @@ router.post('/', async (req, res) => {
       throw stockErr;
     }
 
-    let invoice;
+    let invoice: Awaited<ReturnType<typeof db.createInvoice>>;
     try {
       invoice = await db.createInvoice({
         customerId: customerId || null,
@@ -131,7 +131,7 @@ router.post('/', async (req, res) => {
 
     await linkSaleMovementsToInvoice(schemaName, invoice.id, invoiceNumber);
 
-    const populated = await db.getInvoice(invoice.id);
+    const populated = invoice;
     if (populated) {
       try {
         await generateInvoicePdf(businessId, schemaName, {

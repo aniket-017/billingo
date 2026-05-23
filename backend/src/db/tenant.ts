@@ -515,7 +515,7 @@ export class TenantDb {
       amount: number;
     }[];
   }): Promise<TenantInvoice> {
-    return prisma.$transaction(async (tx) => {
+    const invoiceId = await prisma.$transaction(async (tx) => {
       const invRows = await tx.$queryRaw<Record<string, unknown>[]>`
         INSERT INTO ${Prisma.raw(`${this.s}.invoices`)}
           (customer_id, invoice_number, date, created_by_email, created_by_name, subtotal, tax, total, notes)
@@ -532,13 +532,13 @@ export class TenantDb {
         )
         RETURNING *
       `;
-      const invoiceId = String(invRows[0].id);
+      const id = String(invRows[0].id);
       for (const item of data.items) {
         await tx.$executeRaw`
           INSERT INTO ${Prisma.raw(`${this.s}.invoice_items`)}
             (invoice_id, product_id, product_name, barcode, quantity, unit_price, amount)
           VALUES (
-            ${invoiceId}::uuid,
+            ${id}::uuid,
             ${item.productId}::uuid,
             ${item.productName},
             ${item.barcode},
@@ -548,9 +548,14 @@ export class TenantDb {
           )
         `;
       }
-      const db = new TenantDb(this.schemaName);
-      return (await db.getInvoice(invoiceId))!;
+      return id;
     });
+
+    const invoice = await this.getInvoice(invoiceId);
+    if (!invoice) {
+      throw new Error('Failed to load created invoice');
+    }
+    return invoice;
   }
 
   // --- Reports ---
