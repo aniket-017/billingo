@@ -18,7 +18,7 @@ const WHATSAPP_SHOP_CONTACT = process.env.WHATSAPP_SHOP_CONTACT || '+91 84216308
 // Should point to the same host that serves /invoices/:fileName from the backend.
 const INVOICE_BASE_URL =
   process.env.INVOICE_BASE_URL ||
-  `http://localhost:${process.env.PORT || 1970}`;
+  `http://localhost:${process.env.PORT || 1975}`;
 
 // Fixed public host for local development (NODE_ENV=development) so WhatsApp can fetch the PDF.
 const DEV_INVOICE_BASE_URL = 'https://dayalsir.plan2automate.com';

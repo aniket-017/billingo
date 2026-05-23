@@ -22,7 +22,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const projectRoot = path.join(__dirname, '..');
 const app = express();
 
-const PORT = process.env.PORT || 1970;
+const PORT = process.env.PORT || 1975;
 
 app.use(cors());
 app.use(express.json());
