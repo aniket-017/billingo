@@ -4,7 +4,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { connectDb } from './db/connect.js';
+import { connectDb, disconnectDb, ensureDbConnection } from './db/connect.js';
 import { seedAdmin } from './db/seedAdmin.js';
 import productsRouter from './routes/products.js';
 import customersRouter from './routes/customers.js';
@@ -16,9 +16,9 @@ import adminRouter from './routes/admin.js';
 import platformRouter from './routes/platform.js';
 import settingsRouter from './routes/settings.js';
 
-dotenv.config();
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
 const projectRoot = path.join(__dirname, '..');
 const app = express();
 
@@ -26,6 +26,16 @@ const PORT = process.env.PORT || 1970;
 
 app.use(cors());
 app.use(express.json());
+
+// Neon may drop idle connections; verify pool before each API request
+app.use('/api', async (_req, _res, next) => {
+  try {
+    await ensureDbConnection();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
@@ -76,3 +86,11 @@ start().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+async function shutdown() {
+  await disconnectDb();
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
