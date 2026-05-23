@@ -159,7 +159,7 @@ export const api = {
       tax?: number;
       notes?: string;
       sendWhatsApp?: boolean;
-    }) => request<Invoice>('/invoices', { method: 'POST', body: JSON.stringify(body) }),
+    }) => request<InvoiceWithWhatsAppSend>('/invoices', { method: 'POST', body: JSON.stringify(body) }),
   },
   reports: {
     sales: (from?: string, to?: string) =>
@@ -214,6 +214,14 @@ export const api = {
 };
 
 export type WhatsAppDeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
+
+export type WhatsAppSendResult =
+  | { ok: true; messageId: string }
+  | { ok: false; reason: string };
+
+export type InvoiceWithWhatsAppSend = Invoice & {
+  whatsappSend?: WhatsAppSendResult;
+};
 
 export type Invoice = {
   id: string;

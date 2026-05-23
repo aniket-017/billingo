@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { generateInvoicePdf } from '../services/invoicePdf.js';
-import { sendInvoiceWhatsApp } from '../services/whatsapp.js';
+import { sendInvoiceWhatsApp, type SendInvoiceWhatsAppResult } from '../services/whatsapp.js';
 import { authMiddleware, AuthPayload, tenantMiddleware } from '../middleware/auth.js';
 import { getTenant, getTenantDb } from '../middleware/tenant.js';
 import {
@@ -155,24 +155,29 @@ router.post('/', async (req, res) => {
       } catch (pdfError) {
         console.error('Failed to generate invoice PDF', pdfError);
       }
+      let whatsappSend: SendInvoiceWhatsAppResult | undefined;
       if (sendWhatsApp) {
         try {
-          const waResult = await sendInvoiceWhatsApp(
+          whatsappSend = await sendInvoiceWhatsApp(
             businessId,
             populated as Parameters<typeof sendInvoiceWhatsApp>[1]
           );
-          if (waResult.ok) {
+          if (whatsappSend.ok) {
             await db.updateInvoiceWhatsApp(populated.id, {
-              messageId: waResult.messageId,
+              messageId: whatsappSend.messageId,
               status: 'sent',
             });
-            populated.whatsappMessageId = waResult.messageId;
+            populated.whatsappMessageId = whatsappSend.messageId;
             populated.whatsappStatus = 'sent';
           }
         } catch (waError) {
           console.error('Failed to send invoice via WhatsApp', waError);
+          whatsappSend = { ok: false, reason: 'unexpected_error' };
         }
       }
+      return res.status(201).json(
+        whatsappSend !== undefined ? { ...populated, whatsappSend } : populated
+      );
     }
     res.status(201).json(populated);
   } catch (e) {
