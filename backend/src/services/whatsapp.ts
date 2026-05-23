@@ -36,22 +36,26 @@ function normalizeIndianPhone(raw: string | undefined | null): string | null {
   return digits;
 }
 
+export type SendInvoiceWhatsAppResult =
+  | { ok: true; messageId: string }
+  | { ok: false; reason: string };
+
 export async function sendInvoiceWhatsApp(
   businessId: string,
   invoice: InvoiceForWhatsApp
-): Promise<void> {
+): Promise<SendInvoiceWhatsAppResult> {
   if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
     console.warn(
       'WhatsApp config missing (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN); skipping WhatsApp send.'
     );
-    return;
+    return { ok: false, reason: 'config_missing' };
   }
 
   if (!validateS3Config()) {
     console.warn(
       'S3 config missing (AWS_REGION, AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY); skipping WhatsApp send.'
     );
-    return;
+    return { ok: false, reason: 's3_config_missing' };
   }
 
   const customer = invoice.customer ?? invoice.customerId;
@@ -62,7 +66,7 @@ export async function sendInvoiceWhatsApp(
     console.warn(
       `No valid customer phone for WhatsApp invoice ${invoice.invoiceNumber}; skipping send.`
     );
-    return;
+    return { ok: false, reason: 'invalid_phone' };
   }
 
   let invoiceLink: string;
@@ -73,7 +77,7 @@ export async function sendInvoiceWhatsApp(
       `Failed to generate presigned URL for invoice ${invoice.invoiceNumber}:`,
       err
     );
-    return;
+    return { ok: false, reason: 'presign_failed' };
   }
 
   const body = {
@@ -122,7 +126,7 @@ export async function sendInvoiceWhatsApp(
   const fetchFn: typeof fetch | undefined = (globalThis as any).fetch;
   if (!fetchFn) {
     console.warn('globalThis.fetch is not available; skipping WhatsApp send.');
-    return;
+    return { ok: false, reason: 'fetch_unavailable' };
   }
 
   const url = `https://graph.facebook.com/v20.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -145,11 +149,26 @@ export async function sendInvoiceWhatsApp(
         res.statusText,
         text
       );
+      return { ok: false, reason: 'api_error' };
     }
+
+    const data = (await res.json().catch(() => null)) as {
+      messages?: { id?: string }[];
+    } | null;
+    const messageId = data?.messages?.[0]?.id;
+    if (!messageId) {
+      console.warn(
+        `WhatsApp API succeeded but no message id for invoice ${invoice.invoiceNumber}`
+      );
+      return { ok: false, reason: 'no_message_id' };
+    }
+
+    return { ok: true, messageId };
   } catch (err) {
     console.error(
       `Error while calling WhatsApp API for invoice ${invoice.invoiceNumber}:`,
       err
     );
+    return { ok: false, reason: 'network_error' };
   }
 }

@@ -157,10 +157,18 @@ router.post('/', async (req, res) => {
       }
       if (sendWhatsApp) {
         try {
-          await sendInvoiceWhatsApp(
+          const waResult = await sendInvoiceWhatsApp(
             businessId,
             populated as Parameters<typeof sendInvoiceWhatsApp>[1]
           );
+          if (waResult.ok) {
+            await db.updateInvoiceWhatsApp(populated.id, {
+              messageId: waResult.messageId,
+              status: 'sent',
+            });
+            populated.whatsappMessageId = waResult.messageId;
+            populated.whatsappStatus = 'sent';
+          }
         } catch (waError) {
           console.error('Failed to send invoice via WhatsApp', waError);
         }

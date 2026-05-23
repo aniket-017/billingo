@@ -9,6 +9,7 @@ import type {
   TenantProduct,
   TenantStockMovement,
   StockMovementType,
+  WhatsAppDeliveryStatus,
 } from '../types/tenant.js';
 
 function toNum(v: unknown): number {
@@ -490,10 +491,45 @@ export class TenantDb {
       tax: toNum(row.tax),
       total: toNum(row.total),
       notes: String(row.notes ?? ''),
+      whatsappMessageId: row.whatsapp_message_id ? String(row.whatsapp_message_id) : null,
+      whatsappStatus: row.whatsapp_status
+        ? (String(row.whatsapp_status) as WhatsAppDeliveryStatus)
+        : null,
       createdAt: new Date(row.created_at as string | Date).toISOString(),
       updatedAt: new Date(row.updated_at as string | Date).toISOString(),
       customer,
     };
+  }
+
+  async updateInvoiceWhatsApp(
+    invoiceId: string,
+    data: { messageId?: string; status?: WhatsAppDeliveryStatus | null }
+  ): Promise<void> {
+    if (data.messageId !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE ${Prisma.raw(`${this.s}.invoices`)}
+        SET whatsapp_message_id = ${data.messageId},
+            updated_at = NOW()
+        WHERE id = ${invoiceId}::uuid
+      `;
+    }
+    if (data.status !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE ${Prisma.raw(`${this.s}.invoices`)}
+        SET whatsapp_status = ${data.status},
+            updated_at = NOW()
+        WHERE id = ${invoiceId}::uuid
+      `;
+    }
+  }
+
+  async findInvoiceIdByWhatsAppMessageId(waMessageId: string): Promise<string | null> {
+    const rows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM ${Prisma.raw(`${this.s}.invoices`)}
+      WHERE whatsapp_message_id = ${waMessageId}
+      LIMIT 1
+    `;
+    return rows[0] ? String(rows[0].id) : null;
   }
 
   async createInvoice(data: {

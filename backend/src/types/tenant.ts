@@ -41,6 +41,8 @@ export type TenantInvoiceItem = {
   amount: number;
 };
 
+export type WhatsAppDeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
+
 export type TenantInvoice = {
   id: string;
   customerId: string | null;
@@ -52,6 +54,8 @@ export type TenantInvoice = {
   tax: number;
   total: number;
   notes: string;
+  whatsappMessageId?: string | null;
+  whatsappStatus?: WhatsAppDeliveryStatus | null;
   createdAt: string;
   updatedAt: string;
   items?: TenantInvoiceItem[];

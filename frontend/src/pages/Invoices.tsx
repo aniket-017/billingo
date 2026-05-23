@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api, type Invoice } from '../api/client';
 import { useBusinessSettings } from '../contexts/BusinessSettingsContext';
 import Toast from '../components/Toast';
+import WhatsAppStatusBadge from '../components/WhatsAppStatusBadge';
 
 export default function Invoices() {
   const { settings } = useBusinessSettings();
@@ -177,6 +178,7 @@ export default function Invoices() {
                   <th>Number</th>
                   <th>Date</th>
                   <th>Customer</th>
+                  <th>WhatsApp</th>
                   <th className="text-right">Total</th>
                   <th></th>
                 </tr>
@@ -187,6 +189,9 @@ export default function Invoices() {
                     <td className="font-medium">{inv.invoiceNumber}</td>
                     <td>{new Date(inv.date).toLocaleDateString()}</td>
                     <td>{inv.customer?.name ?? '—'}</td>
+                    <td>
+                      <WhatsAppStatusBadge status={inv.whatsappStatus} />
+                    </td>
                     <td className="text-right">{inv.total.toFixed(2)}</td>
                     <td>
                       <button type="button" onClick={() => openDetail(inv.id)} className="btn-ghost text-sm">
@@ -247,6 +252,12 @@ export default function Invoices() {
               </div>
             </div>
             <p className="mt-2 text-slate-600">Date: {new Date(detail.date).toLocaleString()}</p>
+            {detail.whatsappStatus && (
+              <p className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+                <span className="font-semibold">WhatsApp delivery:</span>
+                <WhatsAppStatusBadge status={detail.whatsappStatus} />
+              </p>
+            )}
             {detail.customer && (
               <div className="mt-2 text-slate-600 text-sm">
                 <span className="font-semibold">Billed to:</span>

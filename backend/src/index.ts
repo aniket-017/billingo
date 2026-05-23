@@ -15,6 +15,8 @@ import authRouter from './routes/auth.js';
 import adminRouter from './routes/admin.js';
 import platformRouter from './routes/platform.js';
 import settingsRouter from './routes/settings.js';
+import whatsappWebhookRouter from './routes/whatsappWebhook.js';
+import { migrateTenantWhatsAppColumns } from './db/migrateTenantWhatsApp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -25,6 +27,9 @@ const PORT = process.env.PORT || 1975;
 
 app.use(cors());
 app.use(express.json());
+
+// Meta WhatsApp webhook (no auth — called by Facebook)
+app.use('/webhook/whatsapp', whatsappWebhookRouter);
 
 // Neon may drop idle connections; verify pool before each API request
 app.use('/api', async (_req, _res, next) => {
@@ -58,6 +63,7 @@ if (fs.existsSync(frontendDist)) {
 
 async function start() {
   await connectDb();
+  await migrateTenantWhatsAppColumns();
   await seedAdmin();
   app.listen(PORT, () => {
     console.log(`Barcode Billing API running at http://localhost:${PORT}`);

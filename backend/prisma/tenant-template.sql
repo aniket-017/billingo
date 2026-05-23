@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".invoices (
   tax DECIMAL(12, 2) NOT NULL DEFAULT 0,
   total DECIMAL(12, 2) NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
+  whatsapp_message_id TEXT,
+  whatsapp_status TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT invoices_number_unique UNIQUE (invoice_number)

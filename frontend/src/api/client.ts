@@ -213,6 +213,8 @@ export const api = {
   },
 };
 
+export type WhatsAppDeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed';
+
 export type Invoice = {
   id: string;
   invoiceNumber: string;
@@ -225,5 +227,7 @@ export type Invoice = {
   tax: number;
   total: number;
   notes?: string;
+  whatsappMessageId?: string | null;
+  whatsappStatus?: WhatsAppDeliveryStatus | null;
   items?: { productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }[];
 };
