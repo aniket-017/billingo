@@ -77,7 +77,7 @@ router.post('/generate-barcode', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const tenant = getTenantDb(req);
-    const { barcode, name, price, unit, description, openingQuantity, reorderLevel, costPrice } =
+    const { barcode, name, price, unit, description, category, openingQuantity, reorderLevel, costPrice } =
       req.body;
     if (!barcode || !name || price == null) {
       return res.status(400).json({ error: 'barcode, name, and price are required' });
@@ -89,6 +89,7 @@ router.post('/', async (req, res) => {
         price: Number(price),
         unit: unit || 'pcs',
         description: description || '',
+        category: category != null ? String(category).trim() : '',
         reorderLevel: reorderLevel != null ? Math.max(0, Number(reorderLevel)) : 0,
         costPrice:
           costPrice != null && costPrice !== '' ? Math.max(0, Number(costPrice)) : null,
@@ -121,7 +122,7 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { barcode, name, price, unit, description, reorderLevel, costPrice } = req.body;
+    const { barcode, name, price, unit, description, category, reorderLevel, costPrice } = req.body;
     try {
       const product = await getTenantDb(req).updateProduct(req.params.id, {
         ...(barcode !== undefined && { barcode: String(barcode).trim() }),
@@ -129,6 +130,7 @@ router.put('/:id', async (req, res) => {
         ...(price !== undefined && { price: Number(price) }),
         ...(unit !== undefined && { unit }),
         ...(description !== undefined && { description }),
+        ...(category !== undefined && { category: String(category).trim() }),
         ...(reorderLevel !== undefined && { reorderLevel: Math.max(0, Number(reorderLevel)) }),
         ...(costPrice !== undefined && {
           costPrice:

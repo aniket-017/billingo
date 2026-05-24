@@ -11,7 +11,8 @@
     "build": "npm run build:backend && npm run build:frontend",
     "start:backend": "cd backend && npm start",
     "electron": "electron electron/main.js",
-    "postinstall": "cd backend && npm install && cd ../frontend && npm install"
+    "mobile": "cd mobile && npx expo start",
+    "postinstall": "cd backend && npm install && cd ../frontend && npm install && cd ../mobile && npm install"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

@@ -13,6 +13,7 @@ export type TenantProduct = {
   price: number;
   unit: string;
   description: string;
+  category: string;
   quantityOnHand: number;
   reorderLevel: number;
   costPrice: number | null;

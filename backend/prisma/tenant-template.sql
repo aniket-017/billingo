@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".products (
   price DECIMAL(12, 2) NOT NULL,
   unit TEXT NOT NULL DEFAULT 'pcs',
   description TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
   quantity_on_hand INTEGER NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
   reorder_level INTEGER NOT NULL DEFAULT 0 CHECK (reorder_level >= 0),
   cost_price DECIMAL(12, 2),

@@ -3,6 +3,8 @@ backend/node_modules
 /node_modules
 node_modules/*
 backend/.env
+mobile/.env
+mobile/node_modules
 frontend/dist
 frontend/build
 backend/invoices/*

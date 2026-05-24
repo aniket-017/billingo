@@ -33,6 +33,7 @@ function mapProduct(row: Record<string, unknown>): TenantProduct {
     price: toNum(row.price),
     unit: String(row.unit ?? 'pcs'),
     description: String(row.description ?? ''),
+    category: String(row.category ?? ''),
     quantityOnHand: Number(row.quantity_on_hand ?? 0),
     reorderLevel: Number(row.reorder_level ?? 0),
     costPrice: row.cost_price != null ? toNum(row.cost_price) : null,
@@ -183,18 +184,20 @@ export class TenantDb {
     price: number;
     unit?: string;
     description?: string;
+    category?: string;
     reorderLevel?: number;
     costPrice?: number | null;
   }): Promise<TenantProduct> {
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO ${Prisma.raw(`${this.s}.products`)}
-        (barcode, name, price, unit, description, reorder_level, cost_price)
+        (barcode, name, price, unit, description, category, reorder_level, cost_price)
       VALUES (
         ${data.barcode},
         ${data.name},
         ${data.price},
         ${data.unit ?? 'pcs'},
         ${data.description ?? ''},
+        ${data.category ?? ''},
         ${data.reorderLevel ?? 0},
         ${data.costPrice ?? null}
       )
@@ -211,6 +214,7 @@ export class TenantDb {
       price: number;
       unit: string;
       description: string;
+      category: string;
       reorderLevel: number;
       costPrice: number | null;
     }>
@@ -224,6 +228,7 @@ export class TenantDb {
           price = ${data.price ?? current.price},
           unit = ${data.unit ?? current.unit},
           description = ${data.description ?? current.description},
+          category = ${data.category ?? current.category},
           reorder_level = ${data.reorderLevel ?? current.reorderLevel},
           cost_price = ${data.costPrice !== undefined ? data.costPrice : current.costPrice},
           updated_at = NOW()
