@@ -14,7 +14,6 @@ type InvoiceForWhatsApp = {
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 const WHATSAPP_TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'bookstore_invoice';
-const WHATSAPP_SHOP_CONTACT = process.env.WHATSAPP_SHOP_CONTACT || '+91 8421630880';
 
 function normalizeIndianPhone(raw: string | undefined | null): string | null {
   if (!raw) return null;
@@ -40,9 +39,15 @@ export type SendInvoiceWhatsAppResult =
   | { ok: true; messageId: string }
   | { ok: false; reason: string };
 
+type BusinessDetails = {
+  storeName: string;
+  shopContact: string;
+};
+
 export async function sendInvoiceWhatsApp(
   businessId: string,
-  invoice: InvoiceForWhatsApp
+  invoice: InvoiceForWhatsApp,
+  business: BusinessDetails
 ): Promise<SendInvoiceWhatsAppResult> {
   if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
     console.warn(
@@ -115,7 +120,11 @@ export async function sendInvoiceWhatsApp(
             },
             {
               type: 'text',
-              text: WHATSAPP_SHOP_CONTACT,
+              text: business.storeName || '',
+            },
+            {
+              type: 'text',
+              text: business.shopContact || '',
             },
           ],
         },

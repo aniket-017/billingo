@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { generateInvoicePdf } from '../services/invoicePdf.js';
 import { sendInvoiceWhatsApp, type SendInvoiceWhatsAppResult } from '../services/whatsapp.js';
+import { getBusinessSettings } from '../services/businessSettings.js';
 import { authMiddleware, AuthPayload, tenantMiddleware } from '../middleware/auth.js';
 import { getTenant, getTenantDb } from '../middleware/tenant.js';
 import {
@@ -173,9 +174,11 @@ router.post('/', async (req, res) => {
       let whatsappSend: SendInvoiceWhatsAppResult | undefined;
       if (sendWhatsApp) {
         try {
+          const settings = await getBusinessSettings(schemaName);
           whatsappSend = await sendInvoiceWhatsApp(
             businessId,
-            populated as Parameters<typeof sendInvoiceWhatsApp>[1]
+            populated as Parameters<typeof sendInvoiceWhatsApp>[1],
+            { storeName: settings.businessName, shopContact: settings.phone }
           );
           if (whatsappSend.ok) {
             await db.updateInvoiceWhatsApp(populated.id, {
@@ -205,12 +208,17 @@ router.post('/', async (req, res) => {
 
 router.post('/:id/resend-whatsapp', async (req, res) => {
   try {
-    const { businessId } = getTenant(req);
+    const { businessId, schemaName } = getTenant(req);
     const db = getTenantDb(req);
     const invoice = await db.getInvoice(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-    const result = await sendInvoiceWhatsApp(businessId, invoice as Parameters<typeof sendInvoiceWhatsApp>[1]);
+    const settings = await getBusinessSettings(schemaName);
+    const result = await sendInvoiceWhatsApp(
+      businessId,
+      invoice as Parameters<typeof sendInvoiceWhatsApp>[1],
+      { storeName: settings.businessName, shopContact: settings.phone }
+    );
     if (result.ok) {
       await db.updateInvoiceWhatsApp(invoice.id, {
         messageId: result.messageId,
