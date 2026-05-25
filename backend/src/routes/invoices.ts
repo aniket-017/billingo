@@ -23,6 +23,7 @@ router.get('/', async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    const customerId = req.query.customerId as string | undefined;
     const page = Number(req.query.page ?? '1');
     const limit = Number(req.query.limit ?? '10');
     const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
@@ -37,6 +38,7 @@ router.get('/', async (req, res) => {
     const result = await getTenantDb(req).listInvoices({
       from: from ? new Date(from) : undefined,
       to: toDate,
+      customerId,
       page: pageNumber,
       pageSize,
     });

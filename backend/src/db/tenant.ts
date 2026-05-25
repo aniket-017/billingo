@@ -501,12 +501,14 @@ export class TenantDb {
   async listInvoices(opts: {
     from?: Date;
     to?: Date;
+    customerId?: string;
     page: number;
     pageSize: number;
   }): Promise<{ items: TenantInvoice[]; total: number }> {
     const conditions: Prisma.Sql[] = [];
     if (opts.from) conditions.push(Prisma.sql`i.date >= ${opts.from}`);
     if (opts.to) conditions.push(Prisma.sql`i.date <= ${opts.to}`);
+    if (opts.customerId) conditions.push(Prisma.sql`i.customer_id = ${opts.customerId}::uuid`);
     const where =
       conditions.length > 0
         ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`

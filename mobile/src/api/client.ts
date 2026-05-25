@@ -241,16 +241,17 @@ export const api = {
       request<Customer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
   invoices: {
-    list: (from?: string, to?: string, page?: number, pageSize?: number) =>
+    list: (from?: string, to?: string, page?: number, pageSize?: number, customerId?: string) =>
       request<{ items: Invoice[]; total: number; page: number; pageSize: number; totalPages: number }>(
         `/invoices${
-          from || to || page || pageSize
+          from || to || page || pageSize || customerId
             ? '?' +
               new URLSearchParams({
                 ...(from && { from }),
                 ...(to && { to }),
                 ...(page && { page: String(page) }),
                 ...(pageSize && { limit: String(pageSize) }),
+                ...(customerId && { customerId }),
               }).toString()
             : ''
         }`
