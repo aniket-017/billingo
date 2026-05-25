@@ -162,9 +162,16 @@ export default function AddProductSheet({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.kavWrapper}>
+        <Pressable style={styles.modalBackdrop} onPress={onClose} />
         <View style={[styles.modalSheet, { paddingBottom: spacing.xl + insets.bottom }]}>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Text style={styles.modalTitle}>{sheetTitle}</Text>
@@ -279,6 +286,10 @@ export default function AddProductSheet({
 }
 
 const styles = StyleSheet.create({
+  kavWrapper: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.4)',
@@ -288,7 +299,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: spacing.lg,
-    maxHeight: '92%',
+    maxHeight: '80%',
   },
   modalTitle: {
     fontFamily: font.bold,

@@ -261,7 +261,10 @@ export const api = {
       items: { productId: string; productName: string; barcode: string; quantity: number; unitPrice: number; amount: number }[];
       tax?: number;
       notes?: string;
+      sendWhatsApp?: boolean;
     }) => request<InvoiceWithWhatsAppSend>('/invoices', { method: 'POST', body: JSON.stringify(body) }),
+    resendWhatsApp: (id: string) =>
+      request<{ whatsappSend: WhatsAppSendResult }>(`/invoices/${id}/resend-whatsapp`, { method: 'POST' }),
   },
   reports: {
     sales: (from?: string, to?: string) =>

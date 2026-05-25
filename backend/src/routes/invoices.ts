@@ -27,9 +27,15 @@ router.get('/', async (req, res) => {
     const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
     const pageSize = Number.isFinite(limit) && limit > 0 && limit <= 200 ? limit : 10;
 
+    let toDate: Date | undefined;
+    if (to) {
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
+    }
+
     const result = await getTenantDb(req).listInvoices({
       from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      to: toDate,
       page: pageNumber,
       pageSize,
     });
@@ -193,6 +199,26 @@ router.post('/', async (req, res) => {
     if (e instanceof InsufficientStockError) {
       return res.status(400).json({ error: e.message });
     }
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+router.post('/:id/resend-whatsapp', async (req, res) => {
+  try {
+    const { businessId } = getTenant(req);
+    const db = getTenantDb(req);
+    const invoice = await db.getInvoice(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const result = await sendInvoiceWhatsApp(businessId, invoice as Parameters<typeof sendInvoiceWhatsApp>[1]);
+    if (result.ok) {
+      await db.updateInvoiceWhatsApp(invoice.id, {
+        messageId: result.messageId,
+        status: 'sent',
+      });
+    }
+    res.json({ whatsappSend: result });
+  } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
 });

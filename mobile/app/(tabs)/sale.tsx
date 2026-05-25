@@ -169,11 +169,11 @@ export default function SaleScreen() {
     setCart((prev) => prev.filter((i) => i.productId !== productId));
   }
 
-  async function checkout() {
+  async function checkout(sendWhatsApp: boolean) {
     if (cart.length === 0) return;
     setLoading(true);
     try {
-      await api.invoices.create({
+      const result = await api.invoices.create({
         customerId: customerId || undefined,
         items: cart.map((i) => ({
           productId: i.productId,
@@ -183,11 +183,22 @@ export default function SaleScreen() {
           unitPrice: i.unitPrice,
           amount: i.amount,
         })),
+        sendWhatsApp,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCart([]);
       setCartOpen(false);
-      setToast({ message: 'Sale completed', type: 'success' });
+      setCustomerId('');
+
+      if (sendWhatsApp && result.whatsappSend) {
+        if (result.whatsappSend.ok) {
+          setToast({ message: 'Sale completed & receipt sent on WhatsApp', type: 'success' });
+        } else {
+          setToast({ message: `Sale completed but WhatsApp failed: ${result.whatsappSend.reason}`, type: 'error' });
+        }
+      } else {
+        setToast({ message: 'Sale completed', type: 'success' });
+      }
       loadTodayStats();
     } catch (e) {
       setToast({ message: e instanceof Error ? e.message : 'Checkout failed', type: 'error' });
@@ -379,6 +390,15 @@ export default function SaleScreen() {
         onUpdateQty={updateQty}
         onRemove={removeItem}
         onCheckout={checkout}
+        onAddAnother={() => {
+          setCartOpen(false);
+          setScannerOpen(true);
+        }}
+        onAddCustomer={() => {
+          setCartOpen(false);
+          setAddCustomerOpen(true);
+        }}
+        customerName={selectedCustomer?.name}
       />
 
       {toast ? (

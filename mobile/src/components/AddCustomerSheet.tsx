@@ -4,6 +4,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -143,64 +144,74 @@ export default function AddCustomerSheet({
   const canSubmit = name.trim().length > 0;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <Pressable style={styles.backdrop} onPress={close} />
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      onRequestClose={close}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboard}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.kavWrapper}>
+        <Pressable style={styles.backdrop} onPress={close} />
         <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Add customer</Text>
-          <Text style={styles.subtitle}>They’ll be selected for this sale right away.</Text>
+          <ScrollView
+            bounces={false}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            <Text style={styles.title}>Add customer</Text>
+            <Text style={styles.subtitle}>They'll be selected for this sale right away.</Text>
 
-          <Input
-            label="Name"
-            value={name}
-            onChangeText={(v) => {
-              setName(v);
-              if (nameError) setNameError('');
-            }}
-            placeholder="Customer name"
-            autoFocus
-            error={nameError}
-          />
-          <Input
-            label="Phone"
-            value={phone}
-            onChangeText={(v) => {
-              setPhone(v);
-              if (phoneError) setPhoneError('');
-            }}
-            placeholder="10-digit mobile (recommended)"
-            keyboardType="phone-pad"
-            error={phoneError}
-          />
+            <Input
+              label="Name"
+              value={name}
+              onChangeText={(v) => {
+                setName(v);
+                if (nameError) setNameError('');
+              }}
+              placeholder="Customer name"
+              autoFocus
+              error={nameError}
+            />
+            <Input
+              label="Phone"
+              value={phone}
+              onChangeText={(v) => {
+                setPhone(v);
+                if (phoneError) setPhoneError('');
+              }}
+              placeholder="10-digit mobile (recommended)"
+              keyboardType="phone-pad"
+              error={phoneError}
+            />
 
-          {existingMatch ? (
-            <Pressable
-              style={styles.matchCard}
-              onPress={() => selectExisting(existingMatch)}>
-              <View style={styles.matchIcon}>
-                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-              </View>
-              <View style={styles.matchBody}>
-                <Text style={styles.matchTitle}>Already saved</Text>
-                <Text style={styles.matchName}>{existingMatch.name}</Text>
-                {existingMatch.phone ? (
-                  <Text style={styles.matchPhone}>{existingMatch.phone}</Text>
-                ) : null}
-              </View>
-              <Text style={styles.matchAction}>Use →</Text>
-            </Pressable>
-          ) : null}
+            {existingMatch ? (
+              <Pressable
+                style={styles.matchCard}
+                onPress={() => selectExisting(existingMatch)}>
+                <View style={styles.matchIcon}>
+                  <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                </View>
+                <View style={styles.matchBody}>
+                  <Text style={styles.matchTitle}>Already saved</Text>
+                  <Text style={styles.matchName}>{existingMatch.name}</Text>
+                  {existingMatch.phone ? (
+                    <Text style={styles.matchPhone}>{existingMatch.phone}</Text>
+                  ) : null}
+                </View>
+                <Text style={styles.matchAction}>{`Use \u2192`}</Text>
+              </Pressable>
+            ) : null}
 
-          <Button
-            title={existingMatch ? 'Use for this sale' : 'Add & select'}
-            onPress={existingMatch ? () => selectExisting(existingMatch) : save}
-            loading={saving}
-            disabled={!canSubmit}
-          />
-          <Button title="Cancel" variant="ghost" onPress={close} style={styles.cancelBtn} />
+            <Button
+              title={existingMatch ? 'Use for this sale' : 'Add & select'}
+              onPress={existingMatch ? () => selectExisting(existingMatch) : save}
+              loading={saving}
+              disabled={!canSubmit}
+            />
+            <Button title="Cancel" variant="ghost" onPress={close} style={styles.cancelBtn} />
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -208,12 +219,13 @@ export default function AddCustomerSheet({
 }
 
 const styles = StyleSheet.create({
+  kavWrapper: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.4)',
-  },
-  keyboard: {
-    justifyContent: 'flex-end',
   },
   sheet: {
     backgroundColor: colors.white,
@@ -221,6 +233,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
+    maxHeight: '80%',
   },
   handle: {
     alignSelf: 'center',
