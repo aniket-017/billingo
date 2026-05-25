@@ -1,14 +1,17 @@
 import { useCallback, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { recognizeText } from '@infinitered/react-native-mlkit-text-recognition';
-import { extractProductName, type OcrResult } from '@/src/utils/extractProductName';
+import { api } from '@/src/api/client';
+import { extractFullLabelText, type OcrResult } from '@/src/utils/extractProductName';
 
 export function useProductNameOcr() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const scanLabelForName = useCallback(async (): Promise<string | null> => {
     setError(null);
+    setWarning(null);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       setError('Camera permission is required to scan product labels');
@@ -28,11 +31,23 @@ export function useProductNameOcr() {
     setLoading(true);
     try {
       const ocr = (await recognizeText(result.assets[0].uri)) as OcrResult;
-      const name = extractProductName(ocr);
-      if (!name) {
-        setError('Could not detect a product name. Enter it manually.');
+      const fullText = extractFullLabelText(ocr);
+      if (!fullText) {
+        setError('Could not read any text on the label. Enter the name manually.');
+        return null;
       }
-      return name;
+
+      try {
+        const { name } = await api.products.extractNameFromOcr(fullText);
+        if (!name.trim()) {
+          setWarning('AI name extraction failed — using full label text');
+          return fullText;
+        }
+        return name.trim();
+      } catch {
+        setWarning('AI name extraction failed — using full label text');
+        return fullText;
+      }
     } catch {
       setError('OCR is unavailable. Use a dev build or enter the name manually.');
       return null;
@@ -41,5 +56,12 @@ export function useProductNameOcr() {
     }
   }, []);
 
-  return { scanLabelForName, loading, error, clearError: () => setError(null) };
+  return {
+    scanLabelForName,
+    loading,
+    error,
+    warning,
+    clearError: () => setError(null),
+    clearWarning: () => setWarning(null),
+  };
 }

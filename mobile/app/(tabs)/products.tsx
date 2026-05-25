@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, type Product } from '@/src/api/client';
 import AddProductSheet from '@/src/components/AddProductSheet';
+import BulkImportSheet from '@/src/components/BulkImportSheet';
 import Button from '@/src/components/Button';
 import Card from '@/src/components/Card';
 import Input from '@/src/components/Input';
@@ -18,6 +19,7 @@ export default function ProductsScreen() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Product | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const categorySuggestions = useMemo(
@@ -49,7 +51,10 @@ export default function ProductsScreen() {
     <Screen refreshing={loading} onRefresh={() => load(query)}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Products</Text>
-        <Button title="Add" onPress={() => setModalOpen(true)} style={styles.addBtn} />
+        <View style={styles.headerBtns}>
+          <Button title="Bulk Import" variant="secondary" onPress={() => setBulkImportOpen(true)} style={styles.bulkBtn} />
+          <Button title="Add" onPress={() => setModalOpen(true)} style={styles.addBtn} />
+        </View>
       </View>
 
       <Input
@@ -70,6 +75,11 @@ export default function ProductsScreen() {
               {p.barcode} · {p.quantityOnHand ?? 0} {p.unit} in stock
               {p.category ? ` · ${p.category}` : ''}
             </Text>
+            {(p.packSize ?? 1) > 1 ? (
+              <Text style={styles.perUnit}>
+                Rs {(p.price / (p.packSize ?? 1)).toFixed(2)}/tablet · {p.packSize} per strip
+              </Text>
+            ) : null}
           </Card>
         </Pressable>
       ))}
@@ -86,8 +96,16 @@ export default function ProductsScreen() {
               <Text style={styles.modalTitle}>{selected.name}</Text>
               <DetailRow label="Barcode" value={selected.barcode} />
               <DetailRow label="Price" value={formatCurrency(selected.price)} />
+              {(selected.packSize ?? 1) > 1 ? (
+                <DetailRow
+                  label="Per tablet"
+                  value={`Rs ${(selected.price / (selected.packSize ?? 1)).toFixed(2)} (${selected.packSize} per strip)`}
+                />
+              ) : null}
               <DetailRow label="Stock" value={`${selected.quantityOnHand ?? 0} ${selected.unit}`} />
               {selected.category ? <DetailRow label="Category" value={selected.category} /> : null}
+              {selected.batchNo ? <DetailRow label="Batch" value={selected.batchNo} /> : null}
+              {selected.expiryDate ? <DetailRow label="Expiry" value={selected.expiryDate} /> : null}
               {selected.reorderLevel != null ? (
                 <DetailRow label="Reorder at" value={String(selected.reorderLevel)} />
               ) : null}
@@ -104,6 +122,15 @@ export default function ProductsScreen() {
         categorySuggestions={categorySuggestions}
         onSaved={() => {
           setToast({ message: 'Product added', type: 'success' });
+          load(query);
+        }}
+      />
+
+      <BulkImportSheet
+        visible={bulkImportOpen}
+        onClose={() => setBulkImportOpen(false)}
+        onSaved={() => {
+          setToast({ message: 'Products imported', type: 'success' });
           load(query);
         }}
       />
@@ -135,6 +162,13 @@ const styles = StyleSheet.create({
     fontFamily: font.bold,
     fontSize: 26,
     color: colors.text,
+  },
+  headerBtns: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  bulkBtn: {
+    paddingHorizontal: spacing.sm,
   },
   addBtn: {
     minWidth: 80,
@@ -168,6 +202,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     marginTop: spacing.xs,
+  },
+  perUnit: {
+    fontFamily: font.medium,
+    fontSize: 12,
+    color: colors.primary[700],
+    marginTop: 2,
   },
   empty: {
     textAlign: 'center',

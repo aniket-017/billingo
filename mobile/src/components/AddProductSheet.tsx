@@ -62,7 +62,14 @@ export default function AddProductSheet({
   autoGenerateBarcode = false,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { scanLabelForName, loading: ocrLoading, error: ocrError, clearError } = useProductNameOcr();
+  const {
+    scanLabelForName,
+    loading: ocrLoading,
+    error: ocrError,
+    warning: ocrWarning,
+    clearError,
+    clearWarning,
+  } = useProductNameOcr();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -79,6 +86,7 @@ export default function AddProductSheet({
       setForm(emptyForm);
       setFormError('');
       clearError();
+      clearWarning();
       return;
     }
     setForm({
@@ -105,6 +113,7 @@ export default function AddProductSheet({
 
   async function handleScanLabel() {
     clearError();
+    clearWarning();
     const name = await scanLabelForName();
     if (name) {
       setForm((f) => ({ ...f, name }));
@@ -162,9 +171,13 @@ export default function AddProductSheet({
 
             {fromSale ? (
               <Text style={styles.hint}>
-                Barcode not found. Scan the label to fill the name, then add price and stock.
+                Barcode not found. Scan the label — AI will suggest the product name. Add price and stock.
               </Text>
-            ) : null}
+            ) : (
+              <Text style={styles.hint}>
+                Scan the label — AI will suggest the product name. Edit if needed.
+              </Text>
+            )}
 
             <Text style={styles.fieldLabel}>Barcode</Text>
             <View style={styles.barcodeRow}>
@@ -192,12 +205,13 @@ export default function AddProductSheet({
             </View>
 
             <Button
-              title="Scan label for name"
+              title="Scan label"
               variant="secondary"
               onPress={handleScanLabel}
               loading={ocrLoading}
               style={styles.ocrBtn}
             />
+            {ocrWarning ? <Text style={styles.ocrWarning}>{ocrWarning}</Text> : null}
             {ocrError ? <Text style={styles.ocrError}>{ocrError}</Text> : null}
 
             <Input
@@ -208,6 +222,10 @@ export default function AddProductSheet({
                 if (formError) setFormError('');
               }}
               placeholder="Product name"
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              style={styles.nameInput}
             />
 
             <Input
@@ -310,7 +328,16 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   ocrBtn: {
+    marginBottom: spacing.xs,
+  },
+  ocrWarning: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textMuted,
     marginBottom: spacing.sm,
+  },
+  nameInput: {
+    minHeight: 96,
   },
   ocrError: {
     fontFamily: font.regular,

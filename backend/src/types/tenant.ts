@@ -14,6 +14,9 @@ export type TenantProduct = {
   unit: string;
   description: string;
   category: string;
+  batchNo: string;
+  expiryDate: string | null;
+  packSize: number;
   quantityOnHand: number;
   reorderLevel: number;
   costPrice: number | null;

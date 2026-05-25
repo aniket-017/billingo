@@ -34,6 +34,11 @@ function mapProduct(row: Record<string, unknown>): TenantProduct {
     unit: String(row.unit ?? 'pcs'),
     description: String(row.description ?? ''),
     category: String(row.category ?? ''),
+    batchNo: String(row.batch_no ?? ''),
+    expiryDate: row.expiry_date
+      ? new Date(row.expiry_date as string | Date).toISOString().slice(0, 10)
+      : null,
+    packSize: Number(row.pack_size ?? 1),
     quantityOnHand: Number(row.quantity_on_hand ?? 0),
     reorderLevel: Number(row.reorder_level ?? 0),
     costPrice: row.cost_price != null ? toNum(row.cost_price) : null,
@@ -185,12 +190,16 @@ export class TenantDb {
     unit?: string;
     description?: string;
     category?: string;
+    batchNo?: string;
+    expiryDate?: string | null;
+    packSize?: number;
     reorderLevel?: number;
     costPrice?: number | null;
   }): Promise<TenantProduct> {
+    const expiry = data.expiryDate ? new Date(data.expiryDate) : null;
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO ${Prisma.raw(`${this.s}.products`)}
-        (barcode, name, price, unit, description, category, reorder_level, cost_price)
+        (barcode, name, price, unit, description, category, batch_no, expiry_date, pack_size, reorder_level, cost_price)
       VALUES (
         ${data.barcode},
         ${data.name},
@@ -198,6 +207,9 @@ export class TenantDb {
         ${data.unit ?? 'pcs'},
         ${data.description ?? ''},
         ${data.category ?? ''},
+        ${data.batchNo ?? ''},
+        ${expiry},
+        ${data.packSize ?? 1},
         ${data.reorderLevel ?? 0},
         ${data.costPrice ?? null}
       )
@@ -215,12 +227,18 @@ export class TenantDb {
       unit: string;
       description: string;
       category: string;
+      batchNo: string;
+      expiryDate: string | null;
+      packSize: number;
       reorderLevel: number;
       costPrice: number | null;
     }>
   ): Promise<TenantProduct | null> {
     const current = await this.getProduct(id);
     if (!current) return null;
+    const expiry = data.expiryDate !== undefined
+      ? (data.expiryDate ? new Date(data.expiryDate) : null)
+      : (current.expiryDate ? new Date(current.expiryDate) : null);
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       UPDATE ${Prisma.raw(`${this.s}.products`)}
       SET barcode = ${data.barcode ?? current.barcode},
@@ -229,6 +247,9 @@ export class TenantDb {
           unit = ${data.unit ?? current.unit},
           description = ${data.description ?? current.description},
           category = ${data.category ?? current.category},
+          batch_no = ${data.batchNo ?? current.batchNo},
+          expiry_date = ${expiry},
+          pack_size = ${data.packSize ?? current.packSize},
           reorder_level = ${data.reorderLevel ?? current.reorderLevel},
           cost_price = ${data.costPrice !== undefined ? data.costPrice : current.costPrice},
           updated_at = NOW()

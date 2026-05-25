@@ -50,9 +50,42 @@ export type Product = {
   unit: string;
   description?: string;
   category?: string;
+  batchNo?: string;
+  expiryDate?: string | null;
+  packSize?: number;
   quantityOnHand?: number;
   reorderLevel?: number;
   costPrice?: number | null;
+};
+
+export type ParsedInvoiceProduct = {
+  name: string;
+  qty: number;
+  rate: number;
+  mrp: number;
+  batchNo: string;
+  expiry: string;
+  packSize: number;
+};
+
+export type BulkCreateInput = {
+  barcode?: string;
+  name: string;
+  price: number;
+  unit?: string;
+  description?: string;
+  category?: string;
+  batchNo?: string;
+  expiryDate?: string;
+  packSize?: number;
+  openingQuantity?: number;
+  reorderLevel?: number;
+  costPrice?: number;
+};
+
+export type BulkCreateResult = {
+  created: Product[];
+  skipped: { name: string; reason: string }[];
 };
 
 export type StockMovement = {
@@ -145,6 +178,21 @@ export const api = {
     getByBarcode: (barcode: string) => request<Product>(`/products/by-barcode/${encodeURIComponent(barcode)}`),
     barcodeImageUrl: (id: string) => BASE + `/products/${id}/barcode.png`,
     generateBarcode: () => request<{ barcode: string }>('/products/generate-barcode', { method: 'POST' }),
+    extractNameFromOcr: (ocrText: string) =>
+      request<{ name: string }>('/products/extract-name', {
+        method: 'POST',
+        body: JSON.stringify({ ocrText }),
+      }),
+    parseInvoice: (ocrText: string) =>
+      request<{ products: ParsedInvoiceProduct[] }>('/products/parse-invoice', {
+        method: 'POST',
+        body: JSON.stringify({ ocrText }),
+      }),
+    bulkCreate: (products: BulkCreateInput[]) =>
+      request<BulkCreateResult>('/products/bulk-create', {
+        method: 'POST',
+        body: JSON.stringify({ products }),
+      }),
     create: (body: {
       barcode: string;
       name: string;

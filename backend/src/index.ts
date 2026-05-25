@@ -20,6 +20,7 @@ import { migrateTenantWhatsAppColumns } from './db/migrateTenantWhatsApp.js';
 import { migrateTenantCustomerPhoneUnique } from './db/migrateTenantCustomerPhone.js';
 import { migrateTenantInvoiceItemCost } from './db/migrateTenantInvoiceItemCost.js';
 import { migrateTenantProductCategory } from './db/migrateTenantProductCategory.js';
+import { migrateTenantBulkFields } from './db/migrateTenantBulkFields.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -70,6 +71,7 @@ async function start() {
   await migrateTenantCustomerPhoneUnique();
   await migrateTenantInvoiceItemCost();
   await migrateTenantProductCategory();
+  await migrateTenantBulkFields();
   await seedAdmin();
   app.listen(PORT, () => {
     console.log(`Barcode Billing API running at http://localhost:${PORT}`);
