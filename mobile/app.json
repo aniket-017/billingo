@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Barcode Billing",
-    "slug": "barcode-billing",
+    "name": "Plan2Automate",
+    "slug": "billingo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "barcode-billing",
+    "scheme": "billingo",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -20,11 +20,9 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.jue17.barcodebilling"
+      "package": "com.plan2automate.billingo"
     },
     "web": {
       "bundler": "metro",
@@ -61,6 +59,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ca2c4e4f-5db8-4dd6-bd75-35c82f9223f7"
+      }
     }
   }
 }

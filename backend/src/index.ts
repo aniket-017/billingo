@@ -74,7 +74,7 @@ async function start() {
   await migrateTenantBulkFields();
   await seedAdmin();
   app.listen(PORT, () => {
-    console.log(`Barcode Billing API running at http://localhost:${PORT}`);
+    console.log(`Plan2Automate API running at http://localhost:${PORT}`);
   });
 }
 

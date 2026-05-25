@@ -1,13 +1,20 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import {
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/src/api/client';
-import Button from '@/src/components/Button';
-import Card from '@/src/components/Card';
 import Input from '@/src/components/Input';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { colors, font, spacing } from '@/src/theme';
+import { colors, font, radius, spacing } from '@/src/theme';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -46,90 +53,161 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>₹</Text>
-            </View>
-            <Text style={styles.title}>Barcode Billing</Text>
-            <Text style={styles.subtitle}>Sign in to your store account</Text>
-          </View>
+    <View style={styles.root}>
+      <SafeAreaView style={styles.safe}>
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.container}>
+              <View style={styles.header}>
+                <Image
+                  source={require('@/assets/images/plan2automate.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
 
-          <Card>
-            <Input
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              placeholder="you@store.com"
-            />
-            <Input
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="password"
-              placeholder="••••••••"
-            />
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-            <Button title="Sign in" onPress={handleLogin} loading={loading} />
-          </Card>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+              <Text style={styles.welcomeTitle}>Welcome back</Text>
+              <Text style={styles.welcomeSub}>Sign in to your account to continue</Text>
+
+              <View style={styles.form}>
+                <Input
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  placeholder="you@store.com"
+                />
+                <Input
+                  label="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  autoComplete="password"
+                  placeholder="••••••••"
+                />
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <Pressable
+                  onPress={handleLogin}
+                  disabled={loading}
+                  style={({ pressed }) => [
+                    styles.signInBtn,
+                    loading && styles.signInBtnDisabled,
+                    pressed && styles.signInBtnPressed,
+                  ]}
+                >
+                  <Text style={styles.signInText}>
+                    {loading ? 'Signing in...' : 'Sign in'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.footer}>
+                Powered by{' '}
+                <Text style={styles.footerBrand}>Plan2Automate</Text>
+              </Text>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#f0f9ff',
+  },
   safe: {
     flex: 1,
-    backgroundColor: colors.surface[50],
   },
   flex: {
     flex: 1,
   },
-  container: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
-    padding: spacing.lg,
+  },
+  container: {
+    paddingHorizontal: 28,
+    paddingVertical: spacing.lg,
   },
   header: {
     alignItems: 'center',
-    marginBottom: spacing.xl,
+    marginBottom: 8,
   },
   logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: colors.primary[600],
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
+    width: 220,
+    height: 220,
   },
-  logoText: {
-    fontSize: 28,
-    fontFamily: font.bold,
-    color: colors.white,
-  },
-  title: {
-    fontSize: 28,
+  welcomeTitle: {
+    fontSize: 26,
     fontFamily: font.bold,
     color: colors.text,
+    textAlign: 'center',
   },
-  subtitle: {
+  welcomeSub: {
     fontSize: 15,
     fontFamily: font.regular,
     color: colors.textMuted,
-    marginTop: spacing.xs,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 32,
+  },
+  form: {
+    gap: 0,
   },
   error: {
     color: colors.danger,
     fontFamily: font.medium,
     fontSize: 14,
     marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  signInBtn: {
+    backgroundColor: colors.primary[600],
+    borderRadius: radius.md,
+    marginTop: 8,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0284c7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  signInBtnDisabled: {
+    opacity: 0.6,
+  },
+  signInBtnPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.985 }],
+  },
+  signInText: {
+    color: colors.white,
+    fontSize: 17,
+    fontFamily: font.semiBold,
+    letterSpacing: 0.3,
+  },
+  footer: {
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 13,
+    fontFamily: font.regular,
+    color: colors.textMuted,
+  },
+  footerBrand: {
+    fontFamily: font.semiBold,
+    color: colors.primary[600],
   },
 });
