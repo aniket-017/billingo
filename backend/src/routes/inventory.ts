@@ -64,6 +64,8 @@ router.get('/movements/product/:productId', async (req, res) => {
     }
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     let toDate: Date | undefined;
     if (to) {
       toDate = new Date(to);
@@ -73,10 +75,16 @@ router.get('/movements/product/:productId', async (req, res) => {
       productId: req.params.productId,
       from: from ? new Date(from) : undefined,
       to: toDate,
-      page: 1,
-      pageSize: 200,
+      page,
+      pageSize,
     });
-    res.json(result.items);
+    res.json({
+      items: result.items,
+      total: result.total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
+    });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }

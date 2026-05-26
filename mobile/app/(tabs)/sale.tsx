@@ -49,7 +49,7 @@ export default function SaleScreen() {
   const total = useMemo(() => cart.reduce((s, i) => s + i.amount, 0), [cart]);
 
   useEffect(() => {
-    api.customers.list().then(setCustomers).catch(() => setCustomers([]));
+    api.customers.list(undefined, 1, 100).then((res) => setCustomers(res.items)).catch(() => setCustomers([]));
   }, []);
 
   useEffect(() => {
@@ -476,7 +476,7 @@ export default function SaleScreen() {
       <Pressable style={styles.cartBar} onPress={() => setCartOpen(true)}>
         <View style={styles.cartBarLeft}>
           <View style={styles.cartBarIcon}>
-            <Ionicons name="cart" size={20} color={colors.primary[600]} />
+            <Ionicons name="cart" size={20} color={colors.white} />
           </View>
           <View>
             <Text style={styles.cartLabel}>
@@ -559,404 +559,170 @@ export default function SaleScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
   },
-  headerLeft: {
-    flex: 1,
-  },
-  storeName: {
-    fontFamily: font.medium,
-    fontSize: 13,
-    color: colors.primary[600],
-    letterSpacing: 0.2,
-  },
-  heading: {
-    fontFamily: font.bold,
-    fontSize: 24,
-    color: colors.text,
-    marginTop: 2,
-  },
+  headerLeft: { flex: 1 },
+  storeName: { fontFamily: font.medium, fontSize: 13, color: colors.primary[600], letterSpacing: 0.2 },
+  heading: { fontFamily: font.bold, fontSize: 26, color: colors.text, marginTop: 2 },
   cartBadgeBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46, height: 46, borderRadius: 23,
     backgroundColor: colors.primary[600],
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: colors.primary[600], shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
   },
   badge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: colors.danger,
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
+    position: 'absolute', top: -3, right: -3,
+    backgroundColor: colors.danger, borderRadius: 10, minWidth: 20, height: 20,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5,
+    borderWidth: 2, borderColor: colors.surface[50],
   },
-  badgeText: {
-    fontFamily: font.bold,
-    fontSize: 11,
-    color: colors.white,
-  },
+  badgeText: { fontFamily: font.bold, fontSize: 11, color: colors.white },
 
-  scrollBody: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
-    gap: spacing.md,
-  },
+  // Scroll body
+  scrollBody: { flex: 1 },
+  scrollContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.md, gap: spacing.lg },
 
-  section: {
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-    gap: 12,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  sectionTitle: {
-    fontFamily: font.semiBold,
-    fontSize: 15,
-    color: colors.text,
-  },
+  // Sections -- no card, no border, just spacing
+  section: { gap: 12 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sectionTitle: { fontFamily: font.medium, fontSize: 13, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   optionalTag: {
-    fontFamily: font.regular,
-    fontSize: 11,
-    color: colors.textMuted,
-    backgroundColor: colors.surface[100],
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginLeft: 2,
+    fontFamily: font.regular, fontSize: 10, color: colors.textMuted,
+    backgroundColor: colors.surface[100], paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 4, overflow: 'hidden', marginLeft: 2,
   },
 
+  // Scan button -- prominent, no border
   scanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary[50],
-    borderRadius: radius.md,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.primary[100],
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.primary[50], borderRadius: radius.lg,
+    padding: 16, gap: 14,
   },
-  scanButtonPressed: {
-    backgroundColor: colors.primary[100],
-  },
+  scanButtonPressed: { backgroundColor: colors.primary[100] },
   scanIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 48, height: 48, borderRadius: 14,
     backgroundColor: colors.primary[600],
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: colors.primary[600], shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 3,
   },
-  scanTextWrap: {
-    flex: 1,
-  },
-  scanButtonTitle: {
-    fontFamily: font.semiBold,
-    fontSize: 15,
-    color: colors.text,
-  },
-  scanButtonSub: {
-    fontFamily: font.regular,
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
+  scanTextWrap: { flex: 1 },
+  scanButtonTitle: { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
+  scanButtonSub: { fontFamily: font.regular, fontSize: 12, color: colors.textMuted, marginTop: 2 },
 
-  searchWrap: {
-    position: 'relative',
-    zIndex: 10,
-  },
-  searchInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+  // Search -- no border, soft fill
+  searchWrap: { position: 'relative', zIndex: 10 },
+  searchInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   searchInputContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface[50],
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    height: 48,
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.white, borderRadius: radius.md, height: 48,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
   },
-  searchIcon: {
-    marginLeft: 12,
-  },
+  searchIcon: { marginLeft: 12 },
   searchInput: {
-    flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 0,
-    fontSize: 15,
-    fontFamily: font.regular,
-    color: colors.text,
-    height: 48,
+    flex: 1, paddingHorizontal: 10, paddingVertical: 0,
+    fontSize: 15, fontFamily: font.regular, color: colors.text, height: 48,
   },
-  searchSpinner: {
-    marginRight: 12,
-  },
-  searchClear: {
-    marginRight: 12,
-  },
+  searchSpinner: { marginRight: 12 },
+  searchClear: { marginRight: 12 },
   addBarcodeBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary[600],
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 48, height: 48, borderRadius: radius.md,
+    backgroundColor: colors.primary[600], alignItems: 'center', justifyContent: 'center',
+    shadowColor: colors.primary[600], shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3,
   },
 
+  // Dropdown -- shadow only, no border
   dropdown: {
-    marginTop: 4,
-    maxHeight: 240,
-    backgroundColor: colors.white,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    marginTop: 6, maxHeight: 240,
+    backgroundColor: colors.white, borderRadius: radius.md,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8,
     overflow: 'hidden',
   },
-  dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-  },
-  dropdownItemPressed: {
-    backgroundColor: colors.surface[50],
-  },
-  dropdownItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surface[100],
-  },
-  dropdownItemLeft: {
-    flex: 1,
-  },
-  dropdownItemName: {
-    fontFamily: font.medium,
-    fontSize: 15,
-    color: colors.text,
-  },
-  dropdownItemMeta: {
-    fontFamily: font.regular,
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
+  dropdownItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  dropdownItemPressed: { backgroundColor: colors.surface[50] },
+  dropdownItemBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.surface[200] },
+  dropdownItemLeft: { flex: 1 },
+  dropdownItemName: { fontFamily: font.medium, fontSize: 15, color: colors.text },
+  dropdownItemMeta: { fontFamily: font.regular, fontSize: 12, color: colors.textMuted, marginTop: 2 },
   inCartBadge: {
-    backgroundColor: colors.primary[50],
-    borderWidth: 1,
-    borderColor: colors.primary[500],
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    backgroundColor: colors.primary[600], borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4,
   },
-  inCartText: {
-    fontFamily: font.semiBold,
-    fontSize: 12,
-    color: colors.primary[700],
-  },
-  noResults: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-  },
-  noResultsText: {
-    fontFamily: font.regular,
-    fontSize: 14,
-    color: colors.textMuted,
-  },
+  inCartText: { fontFamily: font.bold, fontSize: 12, color: colors.white },
+  noResults: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 16 },
+  noResultsText: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted },
 
+  // Customer section
   addCustomerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    backgroundColor: colors.primary[50],
-    borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 5, paddingHorizontal: 10,
+    backgroundColor: colors.primary[50], borderRadius: 8,
   },
-  addCustomerText: {
-    fontFamily: font.semiBold,
-    fontSize: 13,
-    color: colors.primary[600],
-  },
+  addCustomerText: { fontFamily: font.semiBold, fontSize: 13, color: colors.primary[600] },
 
   selectedCustomer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary[50],
-    borderWidth: 1,
-    borderColor: colors.primary[100],
-    borderRadius: radius.md,
-    padding: 12,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.primary[50], borderRadius: radius.md,
+    padding: 12, gap: 12,
   },
   selectedAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primary[100],
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.primary[100], alignItems: 'center', justifyContent: 'center',
   },
-  selectedCustomerInfo: {
-    flex: 1,
-  },
-  selectedName: {
-    fontFamily: font.semiBold,
-    fontSize: 15,
-    color: colors.text,
-  },
-  customerMeta: {
-    fontFamily: font.regular,
-    fontSize: 13,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
+  selectedCustomerInfo: { flex: 1 },
+  selectedName: { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
+  customerMeta: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, marginTop: 1 },
   clearBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface[100],
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: colors.surface[200], alignItems: 'center', justifyContent: 'center',
   },
 
+  // Customer search -- no border
   customerSearchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface[50],
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    height: 44,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.white, borderRadius: radius.md, height: 44,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
   },
   customerSearchInput: {
-    flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 0,
-    fontSize: 15,
-    fontFamily: font.regular,
-    color: colors.text,
-    height: 44,
+    flex: 1, paddingHorizontal: 10, paddingVertical: 0,
+    fontSize: 15, fontFamily: font.regular, color: colors.text, height: 44,
   },
 
-  chipRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingVertical: 2,
-  },
+  // Chips -- no border, solid fills
+  chipRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
     backgroundColor: colors.surface[100],
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  chipActive: {
-    backgroundColor: colors.primary[50],
-    borderColor: colors.primary[500],
-  },
-  chipText: {
-    fontFamily: font.medium,
-    fontSize: 13,
-    color: colors.textMuted,
-  },
-  chipTextActive: {
-    color: colors.primary[700],
-  },
+  chipActive: { backgroundColor: colors.primary[600] },
+  chipText: { fontFamily: font.medium, fontSize: 13, color: colors.textMuted },
+  chipTextActive: { color: colors.white },
 
-  noMatchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  noMatchText: {
-    fontFamily: font.medium,
-    fontSize: 14,
-    color: colors.primary[600],
-    flex: 1,
-  },
+  noMatchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
+  noMatchText: { fontFamily: font.medium, fontSize: 14, color: colors.primary[600], flex: 1 },
 
+  // Cart bar -- bold and prominent
   cartBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.primary[600],
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    borderRadius: radius.lg,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: colors.primary[700],
+    paddingHorizontal: spacing.lg, paddingVertical: 16,
+    marginHorizontal: spacing.md, marginBottom: spacing.sm,
+    borderRadius: radius.xl,
+    shadowColor: colors.primary[700], shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6,
   },
-  cartBarLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
+  cartBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   cartBarIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center',
   },
-  cartLabel: {
-    fontFamily: font.medium,
-    fontSize: 12,
-    color: colors.primary[100],
-  },
-  cartTotal: {
-    fontFamily: font.bold,
-    fontSize: 20,
-    color: colors.white,
-  },
-  cartBarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  cartAction: {
-    fontFamily: font.semiBold,
-    fontSize: 14,
-    color: colors.white,
-  },
+  cartLabel: { fontFamily: font.medium, fontSize: 13, color: 'rgba(255,255,255,0.7)' },
+  cartTotal: { fontFamily: font.bold, fontSize: 22, color: colors.white, marginTop: -1 },
+  cartBarRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cartAction: { fontFamily: font.semiBold, fontSize: 15, color: colors.white },
 });

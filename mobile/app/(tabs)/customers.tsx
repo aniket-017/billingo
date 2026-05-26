@@ -47,11 +47,16 @@ const waBadgeStyles = StyleSheet.create({
   text: { fontFamily: font.medium, fontSize: 10 },
 });
 
+const PAGE_SIZE = 20;
+
 export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Edit/Create modal
@@ -67,6 +72,9 @@ export default function CustomersScreen() {
   const [invoicesOpen, setInvoicesOpen] = useState(false);
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [invPage, setInvPage] = useState(1);
+  const [invTotalPages, setInvTotalPages] = useState(1);
+  const [invLoadingMore, setInvLoadingMore] = useState(false);
 
   // Invoice detail modal
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
@@ -74,19 +82,24 @@ export default function CustomersScreen() {
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [whatsAppResult, setWhatsAppResult] = useState<string | null>(null);
 
-  const load = useCallback(async (q?: string) => {
-    setLoading(true);
+  const load = useCallback(async (q?: string, p = 1, append = false) => {
+    if (p === 1) setLoading(true);
+    else setLoadingMore(true);
     try {
-      setCustomers(await api.customers.list(q || undefined));
+      const res = await api.customers.list(q || undefined, p, PAGE_SIZE);
+      setCustomers((prev) => append ? [...prev, ...res.items] : res.items);
+      setPage(res.page);
+      setTotalPages(res.totalPages);
     } catch {
-      setCustomers([]);
+      if (!append) setCustomers([]);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(query), 300);
+    const t = setTimeout(() => load(query, 1), 300);
     return () => clearTimeout(t);
   }, [query, load]);
 
@@ -122,14 +135,22 @@ export default function CustomersScreen() {
   async function openInvoicesList() {
     if (!editing) return;
     setInvoicesOpen(true);
-    setInvoicesLoading(true);
+    loadCustomerInvoices(editing.id, 1);
+  }
+
+  async function loadCustomerInvoices(customerId: string, p = 1, append = false) {
+    if (p === 1) setInvoicesLoading(true);
+    else setInvLoadingMore(true);
     try {
-      const res = await api.invoices.list(undefined, undefined, 1, 50, editing.id);
-      setCustomerInvoices(res.items);
+      const res = await api.invoices.list(undefined, undefined, p, PAGE_SIZE, customerId);
+      setCustomerInvoices((prev) => append ? [...prev, ...res.items] : res.items);
+      setInvPage(res.page);
+      setInvTotalPages(res.totalPages);
     } catch {
-      setCustomerInvoices([]);
+      if (!append) setCustomerInvoices([]);
     } finally {
       setInvoicesLoading(false);
+      setInvLoadingMore(false);
     }
   }
 
@@ -198,7 +219,7 @@ export default function CustomersScreen() {
       }
       setModalOpen(false);
       setToast({ message: editing ? 'Customer updated' : 'Customer added', type: 'success' });
-      load(query);
+      load(query, 1);
     } catch (e) {
       setToast({ message: e instanceof Error ? e.message : 'Save failed', type: 'error' });
     } finally {
@@ -207,7 +228,7 @@ export default function CustomersScreen() {
   }
 
   return (
-    <Screen refreshing={loading} onRefresh={() => load(query)}>
+    <Screen refreshing={loading} onRefresh={() => load(query, 1)}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Customers</Text>
         <Button title="Add" onPress={openCreate} style={styles.addBtn} />
@@ -233,6 +254,16 @@ export default function CustomersScreen() {
           </Card>
         </Pressable>
       ))}
+
+      {page < totalPages ? (
+        <Pressable style={styles.loadMoreBtn} onPress={() => load(query, page + 1, true)}>
+          {loadingMore ? (
+            <ActivityIndicator size="small" color={colors.primary[600]} />
+          ) : (
+            <Text style={styles.loadMoreText}>Load more</Text>
+          )}
+        </Pressable>
+      ) : null}
 
       {!loading && customers.length === 0 ? (
         <Text style={styles.empty}>No customers found</Text>
@@ -324,21 +355,32 @@ export default function CustomersScreen() {
                 <Text style={styles.emptyStateSub}>Invoices for this customer will appear here</Text>
               </View>
             ) : (
-              customerInvoices.map((inv) => (
-                <Pressable
-                  key={inv.id}
-                  style={({ pressed }) => [styles.invoiceCard, pressed && styles.invoiceCardPressed]}
-                  onPress={() => openInvoiceDetail(inv)}>
-                  <View style={styles.invoiceCardTop}>
-                    <Text style={styles.invoiceNumber}>{inv.invoiceNumber}</Text>
-                    <Text style={styles.invoiceTotal}>{formatCurrency(inv.total)}</Text>
-                  </View>
-                  <View style={styles.invoiceCardBottom}>
-                    <Text style={styles.invoiceMeta}>{formatDate(inv.date)}</Text>
-                    {whatsappBadge(inv.whatsappStatus)}
-                  </View>
-                </Pressable>
-              ))
+              <>
+                {customerInvoices.map((inv) => (
+                  <Pressable
+                    key={inv.id}
+                    style={({ pressed }) => [styles.invoiceCard, pressed && styles.invoiceCardPressed]}
+                    onPress={() => openInvoiceDetail(inv)}>
+                    <View style={styles.invoiceCardTop}>
+                      <Text style={styles.invoiceNumber}>{inv.invoiceNumber}</Text>
+                      <Text style={styles.invoiceTotal}>{formatCurrency(inv.total)}</Text>
+                    </View>
+                    <View style={styles.invoiceCardBottom}>
+                      <Text style={styles.invoiceMeta}>{formatDate(inv.date)}</Text>
+                      {whatsappBadge(inv.whatsappStatus)}
+                    </View>
+                  </Pressable>
+                ))}
+                {invPage < invTotalPages && editing ? (
+                  <Pressable style={styles.loadMoreBtn} onPress={() => loadCustomerInvoices(editing.id, invPage + 1, true)}>
+                    {invLoadingMore ? (
+                      <ActivityIndicator size="small" color={colors.primary[600]} />
+                    ) : (
+                      <Text style={styles.loadMoreText}>Load more</Text>
+                    )}
+                  </Pressable>
+                ) : null}
+              </>
             )}
           </ScrollView>
         </View>
@@ -441,6 +483,8 @@ const styles = StyleSheet.create({
   name: { fontFamily: font.semiBold, fontSize: 16, color: colors.text },
   meta: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, marginTop: 2 },
   empty: { textAlign: 'center', fontFamily: font.regular, color: colors.textMuted, marginTop: spacing.xl },
+  loadMoreBtn: { alignItems: 'center', paddingVertical: 14, marginTop: spacing.xs, marginBottom: spacing.md },
+  loadMoreText: { fontFamily: font.semiBold, fontSize: 14, color: colors.primary[600] },
 
   // Shared modal
   backdrop: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)' },

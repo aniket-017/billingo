@@ -285,8 +285,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    movementsByProduct: (productId: string) =>
-      request<StockMovement[]>(`/inventory/movements/product/${productId}`),
+    movementsByProduct: (productId: string, page = 1, limit = 20) =>
+      request<{ items: StockMovement[]; total: number; page: number; pageSize: number; totalPages: number }>(
+        `/inventory/movements/product/${productId}?page=${page}&limit=${limit}`
+      ),
     updateMovement: (id: string, body: {
       quantity?: number;
       dealerName?: string;
@@ -306,7 +308,15 @@ export const api = {
       }),
   },
   customers: {
-    list: (q?: string) => request<Customer[]>(q ? `/customers?q=${encodeURIComponent(q)}` : '/customers'),
+    list: (q?: string, page = 1, limit = 20) => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      params.set('page', String(page));
+      params.set('limit', String(limit));
+      return request<{ items: Customer[]; total: number; page: number; pageSize: number; totalPages: number }>(
+        `/customers?${params.toString()}`
+      );
+    },
     get: (id: string) => request<Customer>(`/customers/${id}`),
     create: (body: { name: string; phone?: string; email?: string; address?: string }) =>
       request<Customer>('/customers', { method: 'POST', body: JSON.stringify(body) }),

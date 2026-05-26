@@ -104,6 +104,9 @@ export default function ProductsScreen() {
   // Movement history
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsPage, setMovementsPage] = useState(1);
+  const [movementsTotalPages, setMovementsTotalPages] = useState(1);
+  const [movementsLoadingMore, setMovementsLoadingMore] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<'all' | 'in' | 'out'>('all');
 
   // Movement detail / edit
@@ -179,15 +182,19 @@ export default function ProductsScreen() {
     setSfNotes('');
   }
 
-  async function loadMovements(productId: string) {
-    setMovementsLoading(true);
+  async function loadMovements(productId: string, page = 1, append = false) {
+    if (page === 1) setMovementsLoading(true);
+    else setMovementsLoadingMore(true);
     try {
-      const mvts = await api.inventory.movementsByProduct(productId);
-      setMovements(mvts);
+      const res = await api.inventory.movementsByProduct(productId, page, 20);
+      setMovements((prev) => append ? [...prev, ...res.items] : res.items);
+      setMovementsPage(res.page);
+      setMovementsTotalPages(res.totalPages);
     } catch {
-      setMovements([]);
+      if (!append) setMovements([]);
     } finally {
       setMovementsLoading(false);
+      setMovementsLoadingMore(false);
     }
   }
 
@@ -498,28 +505,39 @@ export default function ProductsScreen() {
                 ) : filteredMovements.length === 0 ? (
                   <Text style={st.noHistory}>No {historyFilter === 'all' ? '' : historyFilter === 'in' ? 'stock in ' : 'stock out '}history</Text>
                 ) : (
-                  filteredMovements.slice(0, 50).map((m) => {
-                    const meta = MOVEMENT_META[m.type] ?? { label: m.type, icon: 'ellipse-outline', color: colors.textMuted };
-                    const dateStr = m.date ? new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '';
-                    return (
-                      <Pressable key={m.id} onPress={() => openMovementDetail(m)}>
-                        <View style={st.histRow}>
-                          <Ionicons name={meta.icon as any} size={18} color={meta.color} style={st.histIcon} />
-                          <View style={st.histInfo}>
-                            <Text style={st.histType}>{meta.label}</Text>
-                            <Text style={st.histDate}>{dateStr}{m.notes ? ` · ${m.notes}` : ''}</Text>
+                  <>
+                    {filteredMovements.map((m) => {
+                      const meta = MOVEMENT_META[m.type] ?? { label: m.type, icon: 'ellipse-outline', color: colors.textMuted };
+                      const dateStr = m.date ? new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '';
+                      return (
+                        <Pressable key={m.id} onPress={() => openMovementDetail(m)}>
+                          <View style={st.histRow}>
+                            <Ionicons name={meta.icon as any} size={18} color={meta.color} style={st.histIcon} />
+                            <View style={st.histInfo}>
+                              <Text style={st.histType}>{meta.label}</Text>
+                              <Text style={st.histDate}>{dateStr}{m.notes ? ` · ${m.notes}` : ''}</Text>
+                            </View>
+                            <View style={st.histRight}>
+                              <Text style={[st.histQty, { color: meta.color }]}>
+                                {m.type === 'SALE' || m.type === 'ADJUSTMENT' ? '-' : '+'}{m.quantity}
+                              </Text>
+                              <Text style={st.histBal}>Bal: {m.balanceAfter}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color={colors.surface[300]} style={{ marginLeft: 4 }} />
                           </View>
-                          <View style={st.histRight}>
-                            <Text style={[st.histQty, { color: meta.color }]}>
-                              {m.type === 'SALE' || m.type === 'ADJUSTMENT' ? '-' : '+'}{m.quantity}
-                            </Text>
-                            <Text style={st.histBal}>Bal: {m.balanceAfter}</Text>
-                          </View>
-                          <Ionicons name="chevron-forward" size={16} color={colors.surface[300]} style={{ marginLeft: 4 }} />
-                        </View>
+                        </Pressable>
+                      );
+                    })}
+                    {movementsPage < movementsTotalPages ? (
+                      <Pressable style={st.loadMoreBtn} onPress={() => selected && loadMovements(selected.id, movementsPage + 1, true)}>
+                        {movementsLoadingMore ? (
+                          <ActivityIndicator size="small" color={colors.primary[600]} />
+                        ) : (
+                          <Text style={st.loadMoreText}>Load more</Text>
+                        )}
                       </Pressable>
-                    );
-                  })
+                    ) : null}
+                  </>
                 )}
               </View>
             </ScrollView>
@@ -789,6 +807,8 @@ const st = StyleSheet.create({
   histFilterText: { fontFamily: font.semiBold, fontSize: 12, color: colors.textMuted },
   histFilterTextActive: { color: colors.white },
   noHistory: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.md },
+  loadMoreBtn: { alignItems: 'center', paddingVertical: 12, marginTop: spacing.xs },
+  loadMoreText: { fontFamily: font.semiBold, fontSize: 14, color: colors.primary[600] },
   histRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   histIcon: { marginRight: 10, width: 20 },
   histInfo: { flex: 1 },

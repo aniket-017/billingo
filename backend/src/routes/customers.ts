@@ -24,8 +24,18 @@ router.use(authMiddleware, tenantMiddleware);
 router.get('/', async (req, res) => {
   try {
     const q = (req.query.q as string)?.trim() || '';
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     const customers = await getTenantDb(req).listCustomers(q);
-    res.json(customers);
+    const total = customers.length;
+    const paginated = customers.slice((page - 1) * pageSize, page * pageSize);
+    res.json({
+      items: paginated,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
