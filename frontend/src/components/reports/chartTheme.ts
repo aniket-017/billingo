@@ -11,11 +11,12 @@ export const CHART_COLORS = {
 
 export const PIE_COLORS = [CHART_COLORS.primary, CHART_COLORS.amber, CHART_COLORS.emerald, CHART_COLORS.violet, CHART_COLORS.rose];
 
-export function formatRupee(value: number, compact = false) {
-  if (compact && Math.abs(value) >= 1000) {
-    return `₹${(value / 1000).toFixed(1)}k`;
+export function formatRupee(value: number | undefined | null, compact = false) {
+  const v = Number(value ?? 0);
+  if (compact && Math.abs(v) >= 1000) {
+    return `₹${(v / 1000).toFixed(1)}k`;
   }
-  return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  return `₹${v.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 export function formatDayLabel(day: string) {

@@ -198,11 +198,11 @@ export default function Reports() {
     const headers = ['Date', 'Invoices', 'Total', 'Revenue', 'COGS', 'Profit'];
     const rows = data.byDay.map((d) => [
       d.day,
-      d.count,
-      d.total.toFixed(2),
-      d.revenue.toFixed(2),
-      d.cogs.toFixed(2),
-      d.profit.toFixed(2),
+      d.count ?? 0,
+      (d.total ?? 0).toFixed(2),
+      (d.revenue ?? 0).toFixed(2),
+      (d.cogs ?? 0).toFixed(2),
+      (d.profit ?? 0).toFixed(2),
     ]);
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -481,11 +481,11 @@ export default function Reports() {
                       <tr key={d.day}>
                         <td className="font-medium text-slate-700">{d.day}</td>
                         <td className="text-right tabular-nums">{d.count}</td>
-                        <td className="text-right tabular-nums">{d.total.toFixed(2)}</td>
+                        <td className="text-right tabular-nums">{(d.total ?? 0).toFixed(2)}</td>
                         <td
-                          className={`text-right font-medium tabular-nums ${d.profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}
+                          className={`text-right font-medium tabular-nums ${(d.profit ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}
                         >
-                          {d.profit.toFixed(2)}
+                          {(d.profit ?? 0).toFixed(2)}
                         </td>
                       </tr>
                     ))}
@@ -511,7 +511,7 @@ export default function Reports() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <ReportStatCard
               label="Units on hand"
-              value={inventoryData.stock.totalUnits.toLocaleString('en-IN')}
+              value={(inventoryData.stock.totalUnits ?? 0).toLocaleString('en-IN')}
               accent="slate"
             />
             <ReportStatCard
