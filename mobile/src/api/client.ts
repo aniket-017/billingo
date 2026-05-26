@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:1975/api';
+const BASE = 'https://billingo.plan2automate.com/api';
 export const TOKEN_KEY = 'auth_token';
 
 let memoryToken: string | null = null;
