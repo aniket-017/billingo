@@ -73,6 +73,7 @@ export type ParsedInvoiceProduct = {
   batchNo: string;
   expiry: string;
   packSize: number;
+  category: string;
 };
 
 export type ParsedInvoiceResult = {

@@ -11,6 +11,7 @@ export type ParsedInvoiceProduct = {
   batchNo: string;
   expiry: string;
   packSize: number;
+  category: string;
 };
 
 export type ParsedInvoiceResult = {
@@ -33,6 +34,7 @@ Each product object has these fields:
 - "batchNo" (string): Batch/lot number. Default "" if not found.
 - "expiry" (string): Expiry date in YYYY-MM-DD format. If only month and year are given (e.g. "06/27", "Jun 2027"), use the last day of that month (e.g. "2027-06-30"). Default "" if not found.
 - "packSize" (number): Number of units (tablets/capsules) per strip or pack if mentioned (e.g. "10s", "1x10", "strip of 10", "10T" = 10). Default 1 if not mentioned or if the item is not a strip/pack product.
+- "category" (string): The product category based on the product name. Use one of these categories: "Tablet", "Capsule", "Syrup", "Injection", "Cream", "Ointment", "Drops", "Powder", "Inhaler", "Gel", "Lotion", "Spray", "Soap", "Surgical", "Device", "Supplement", "Ayurvedic", "General". Infer from the product name (e.g. "Tab" = "Tablet", "Cap" = "Capsule", "Syr" = "Syrup", "Inj" = "Injection", "Oint" = "Ointment"). Default "General" if unclear.
 
 Rules:
 - Extract ALL product rows from the text. Do not skip any.
@@ -65,6 +67,7 @@ function mapProduct(item: Record<string, unknown>): ParsedInvoiceProduct {
     batchNo: String(item.batchNo ?? item.batch_no ?? item.batch ?? '').trim(),
     expiry: String(item.expiry ?? item.expiryDate ?? item.expiry_date ?? '').trim(),
     packSize: Math.max(1, Number(item.packSize ?? item.pack_size ?? 1)),
+    category: String(item.category ?? 'General').trim(),
   };
 }
 

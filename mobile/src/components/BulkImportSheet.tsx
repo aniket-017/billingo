@@ -43,12 +43,16 @@ function extractFullText(result: OcrResult): string {
   return lines.map((l) => l.text.trim()).join('\n');
 }
 
+type PricingUnit = 'strip' | 'box' | 'tablet';
+const UNIT_LABELS: Record<PricingUnit, string> = { strip: 'Strip', box: 'Box', tablet: 'Tablet' };
+
 type EditableRow = ParsedInvoiceProduct & {
   key: string;
   numBoxes: number;
   stripsPerBox: number;
   tabletsPerStrip: number;
   reorderLevel: number;
+  pricingUnit: PricingUnit;
 };
 
 let keyCounter = 0;
@@ -148,11 +152,14 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
       const editableRows: EditableRow[] = parseResult.products.map((p) => ({
         ...p,
+        sellingPrice: p.sellingPrice > 0 ? p.sellingPrice : p.mrp,
         packSize: p.packSize > 1 ? p.packSize : 1,
         numBoxes: 1,
         stripsPerBox: 1,
         tabletsPerStrip: p.packSize > 1 ? p.packSize : 1,
         reorderLevel: 0,
+        pricingUnit: 'strip' as PricingUnit,
+        category: p.category || 'General',
         key: nextKey(),
       }));
 
@@ -192,6 +199,8 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
         stripsPerBox: 1,
         tabletsPerStrip: 1,
         reorderLevel: 0,
+        pricingUnit: 'strip' as PricingUnit,
+        category: 'General',
       },
     ]);
   }
@@ -229,7 +238,7 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
           reorderLevel: r.reorderLevel > 0 ? r.reorderLevel : undefined,
           costPrice: r.rate > 0 ? r.rate : undefined,
           dealerName: dealerName.trim() || undefined,
-          category: 'Medicine',
+          category: r.category?.trim() || 'General',
         };
       });
 
@@ -246,7 +255,7 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     }
   }
 
-  function renderProductCard({ item }: { item: EditableRow }) {
+  function renderProductCard({ item, index }: { item: EditableRow; index: number }) {
     const totalUnits = Math.max(1, item.numBoxes) * Math.max(1, item.stripsPerBox) * Math.max(1, item.tabletsPerStrip);
     const effectivePrice = item.sellingPrice > 0 ? item.sellingPrice : item.mrp;
     const perUnit = totalUnits > 1 && effectivePrice > 0
@@ -257,113 +266,146 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
       ? { margin: item.mrp - item.rate, pct: ((item.mrp - item.rate) / item.mrp) * 100 }
       : null;
 
-    return (
-      <View style={styles.card}>
-        <Pressable style={styles.removeBtn} onPress={() => removeRow(item.key)}>
-          <Ionicons name="close-circle" size={22} color={colors.danger} />
-        </Pressable>
+    const tabs = Math.max(1, item.tabletsPerStrip);
+    const strips = Math.max(1, item.stripsPerBox);
+    const unitMul = item.pricingUnit === 'tablet' ? 1 : item.pricingUnit === 'strip' ? tabs : strips * tabs;
+    const mrpNum = item.mrp || 0;
+    const costNum = item.rate || 0;
+    const sellNum = item.sellingPrice || 0;
 
+    const showCalc = (mrpNum > 0 || costNum > 0) && totalUnits > 1;
+    const perTab = mrpNum > 0 ? mrpNum / unitMul : 0;
+    const costPerTab = costNum > 0 ? costNum / unitMul : 0;
+    const sellPerTab = sellNum > 0 ? sellNum / unitMul : 0;
+    const profitPerTab = sellPerTab - costPerTab;
+
+    return (
+      <View style={st.card}>
+        <View style={st.cardHeader}>
+          <View style={st.cardBadge}>
+            <Text style={st.cardBadgeText}>{index + 1}</Text>
+          </View>
+          <Pressable style={st.removeBtn} onPress={() => removeRow(item.key)} hitSlop={8}>
+            <Ionicons name="close-circle" size={22} color={colors.danger} />
+          </Pressable>
+        </View>
+
+        {/* Product Name */}
         <Input
           label="Product Name"
           value={item.name}
           onChangeText={(v) => updateRow(item.key, 'name', v)}
           placeholder="Product name"
+          multiline
+          numberOfLines={2}
+          textAlignVertical="top"
+          style={st.nameInput}
         />
 
+        {/* Packaging */}
+        <Text style={st.secLabel}>PACKAGING</Text>
+        <View style={st.pkgLabelRow}>
+          <Text style={st.pkgLabel}>Boxes</Text>
+          <Text style={st.pkgLabel}>Strips in 1 Box</Text>
+          <Text style={st.pkgLabel}>Tablets in 1 Strip</Text>
+        </View>
+        <View style={st.row3}>
+          <View style={st.col}><Input value={item.numBoxes === 0 ? '' : String(item.numBoxes)} onChangeText={(v) => updateRow(item.key, 'numBoxes', v === '' ? 0 : (parseInt(v) || 0))} keyboardType="numeric" placeholder="1" /></View>
+          <View style={st.col}><Input value={item.stripsPerBox === 0 ? '' : String(item.stripsPerBox)} onChangeText={(v) => updateRow(item.key, 'stripsPerBox', v === '' ? 0 : (parseInt(v) || 0))} keyboardType="numeric" placeholder="1" /></View>
+          <View style={st.col}><Input value={item.tabletsPerStrip === 0 ? '' : String(item.tabletsPerStrip)} onChangeText={(v) => updateRow(item.key, 'tabletsPerStrip', v === '' ? 0 : (parseInt(v) || 0))} keyboardType="numeric" placeholder="1" /></View>
+        </View>
+
         {/* Pricing */}
-        <Text style={styles.sectionLabel}>PRICING</Text>
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldThird}>
+        <Text style={st.secLabel}>PRICING</Text>
+        <View style={st.unitRow}>
+          <Text style={st.unitLabel}>Prices per</Text>
+          <View style={st.unitPills}>
+            {(['strip', 'box', 'tablet'] as PricingUnit[]).map((u) => (
+              <Pressable key={u} onPress={() => updateRow(item.key, 'pricingUnit', u)} style={[st.unitPill, item.pricingUnit === u && st.unitPillActive]}>
+                <Text style={[st.unitPillText, item.pricingUnit === u && st.unitPillTextActive]}>{UNIT_LABELS[u]}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={st.row3}>
+          <View style={st.col}>
             <Input
-              label="Sell Price"
+              label={`MRP`}
+              value={item.mrp ? String(item.mrp) : ''}
+              onChangeText={(v) => {
+                const val = parseFloat(v) || 0;
+                updateRow(item.key, 'mrp', val);
+                if (!(item.sellingPrice > 0) || item.sellingPrice === item.mrp) {
+                  updateRow(item.key, 'sellingPrice', val);
+                }
+              }}
+              keyboardType="decimal-pad"
+              placeholder="100"
+            />
+          </View>
+          <View style={st.col}>
+            <Input
+              label={`Sell`}
               value={item.sellingPrice ? String(item.sellingPrice) : ''}
               onChangeText={(v) => updateRow(item.key, 'sellingPrice', parseFloat(v) || 0)}
               keyboardType="decimal-pad"
-              placeholder="0.00"
+              placeholder="95"
             />
           </View>
-          <View style={styles.fieldThird}>
+          <View style={st.col}>
             <Input
-              label="MRP"
-              value={item.mrp ? String(item.mrp) : ''}
-              onChangeText={(v) => updateRow(item.key, 'mrp', parseFloat(v) || 0)}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-            />
-          </View>
-          <View style={styles.fieldThird}>
-            <Input
-              label="Cost Price"
+              label={`Cost`}
               value={item.rate ? String(item.rate) : ''}
               onChangeText={(v) => updateRow(item.key, 'rate', parseFloat(v) || 0)}
               keyboardType="decimal-pad"
-              placeholder="0.00"
+              placeholder="87.80"
             />
           </View>
         </View>
 
+        {item.sellingPrice > 0 && item.mrp > 0 && item.sellingPrice > item.mrp ? (
+          <View style={st.warnBox}><Text style={st.warnText}>⚠ Selling price is higher than MRP</Text></View>
+        ) : null}
+
         {marginInfo ? (
-          <Text style={styles.marginText}>
-            Margin: Rs {marginInfo.margin.toFixed(2)} ({marginInfo.pct.toFixed(1)}%)
+          <Text style={st.marginText}>
+            Margin: ₹{marginInfo.margin.toFixed(2)} ({marginInfo.pct.toFixed(1)}%)
           </Text>
         ) : null}
 
-        {/* Quantity */}
-        <Text style={styles.sectionLabel}>QUANTITY</Text>
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldThird}>
-            <Input
-              label="Boxes"
-              value={String(item.numBoxes)}
-              onChangeText={(v) => updateRow(item.key, 'numBoxes', Math.max(1, parseInt(v) || 1))}
-              keyboardType="numeric"
-              placeholder="1"
-            />
+        {/* Auto Calculated */}
+        {showCalc ? (
+          <View style={st.calcBox}>
+            <Text style={st.calcTitle}>Auto Calculated</Text>
+            <View style={st.calcGrid}>
+              <Text style={st.calcItem}>Total Tablets: <Text style={st.calcBold}>{totalUnits}</Text></Text>
+              {perTab > 0 ? <Text style={st.calcItem}>MRP/Tablet: <Text style={st.calcBold}>₹{perTab.toFixed(2)}</Text></Text> : null}
+              {costPerTab > 0 ? <Text style={st.calcItem}>Cost/Tablet: <Text style={st.calcBold}>₹{costPerTab.toFixed(2)}</Text></Text> : null}
+              {profitPerTab > 0 ? <Text style={[st.calcItem, { color: colors.success }]}>Profit/Tablet: <Text style={st.calcBold}>₹{profitPerTab.toFixed(2)}</Text></Text> : null}
+            </View>
           </View>
-          <View style={styles.fieldThird}>
-            <Input
-              label="Strips/Box"
-              value={String(item.stripsPerBox)}
-              onChangeText={(v) => updateRow(item.key, 'stripsPerBox', Math.max(1, parseInt(v) || 1))}
-              keyboardType="numeric"
-              placeholder="1"
-            />
-          </View>
-          <View style={styles.fieldThird}>
-            <Input
-              label="Tabs/Strip"
-              value={String(item.tabletsPerStrip)}
-              onChangeText={(v) => updateRow(item.key, 'tabletsPerStrip', Math.max(1, parseInt(v) || 1))}
-              keyboardType="numeric"
-              placeholder="1"
-            />
-          </View>
-        </View>
-
-        <Text style={styles.totalUnitsText}>
-          Total units: {totalUnits}
-          {perUnit ? `  •  Rs ${perUnit}/unit` : ''}
-        </Text>
+        ) : (
+          <Text style={st.totalText}>Total units: {totalUnits}{perUnit ? `  •  ₹${perUnit}/unit` : ''}</Text>
+        )}
 
         {/* Batch & Expiry */}
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldHalf}>
-            <Input
-              label="Batch"
-              value={item.batchNo}
-              onChangeText={(v) => updateRow(item.key, 'batchNo', v)}
-              placeholder="Batch"
-            />
+        <View style={st.row2}>
+          <View style={st.col}>
+            <Input label="Batch" value={item.batchNo} onChangeText={(v) => updateRow(item.key, 'batchNo', v)} placeholder="Batch" />
           </View>
-          <View style={styles.fieldHalf}>
-            <Input
-              label="Expiry"
-              value={item.expiry}
-              onChangeText={(v) => updateRow(item.key, 'expiry', v)}
-              placeholder="MM/YYYY"
-            />
+          <View style={st.col}>
+            <Input label="Expiry" value={item.expiry} onChangeText={(v) => updateRow(item.key, 'expiry', v)} placeholder="MM/YYYY" />
           </View>
         </View>
+
+        {/* Category */}
+        <Input
+          label="Category"
+          value={item.category || ''}
+          onChangeText={(v) => updateRow(item.key, 'category', v)}
+          placeholder="e.g. Tablet, Syrup, Capsule"
+        />
 
         {/* Low Stock */}
         <Input
@@ -379,10 +421,10 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={[st.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Bulk Import</Text>
+        <View style={st.header}>
+          <Text style={st.title}>Bulk Import</Text>
           <Pressable onPress={handleClose} hitSlop={12}>
             <Ionicons name="close" size={26} color={colors.text} />
           </Pressable>
@@ -390,58 +432,48 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
         {/* Step: Capture */}
         {step === 'capture' && (
-          <View style={styles.captureContainer}>
-            <View style={styles.captureIcon}>
+          <View style={st.captureContainer}>
+            <View style={st.captureIcon}>
               <Ionicons name="document-text-outline" size={64} color={colors.primary[500]} />
             </View>
-            <Text style={styles.captureTitle}>Import from Invoice</Text>
-            <Text style={styles.captureDesc}>
+            <Text style={st.captureTitle}>Import from Invoice</Text>
+            <Text style={st.captureDesc}>
               Take a photo or pick an image of a supplier invoice, purchase bill, or stock sheet.
               AI will extract all products automatically.
             </Text>
 
-            <Button
-              title="Take Photo"
-              onPress={() => pickImage('camera')}
-              style={styles.captureBtn}
-            />
-            <Button
-              title="Pick from Gallery"
-              variant="secondary"
-              onPress={() => pickImage('gallery')}
-              style={styles.captureBtn}
-            />
+            <Button title="Take Photo" onPress={() => pickImage('camera')} style={st.captureBtn} />
+            <Button title="Pick from Gallery" variant="secondary" onPress={() => pickImage('gallery')} style={st.captureBtn} />
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={st.errorText}>{error}</Text> : null}
           </View>
         )}
 
         {/* Step: Processing */}
         {step === 'processing' && (
-          <View style={styles.processingContainer}>
+          <View style={st.centerContainer}>
             <ActivityIndicator size="large" color={colors.primary[600]} />
-            <Text style={styles.processingText}>{processingStatus}</Text>
+            <Text style={st.processingText}>{processingStatus}</Text>
           </View>
         )}
 
         {/* Step: Review */}
         {step === 'review' && (
           <KeyboardAvoidingView
-            style={styles.reviewContainer}
+            style={st.reviewContainer}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={insets.top + 60}
           >
-            <View style={styles.reviewHeader}>
-              <Text style={styles.reviewCount}>
+            <View style={st.reviewHeader}>
+              <Text style={st.reviewCount}>
                 {rows.length} product{rows.length !== 1 ? 's' : ''} found
               </Text>
               <Pressable onPress={() => { reset(); setStep('capture'); }}>
-                <Text style={styles.rescanText}>Re-scan</Text>
+                <Text style={st.rescanText}>Re-scan</Text>
               </Pressable>
             </View>
 
-            {/* Shared dealer name */}
-            <View style={styles.dealerRow}>
+            <View style={st.dealerRow}>
               <Input
                 label="Dealer Name"
                 value={dealerName}
@@ -450,23 +482,23 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               />
             </View>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={st.errorText}>{error}</Text> : null}
 
             <FlatList
               data={rows}
               renderItem={renderProductCard}
               keyExtractor={(item) => item.key}
-              contentContainerStyle={styles.listContent}
+              contentContainerStyle={st.listContent}
               keyboardShouldPersistTaps="handled"
               ListFooterComponent={
-                <Pressable style={styles.addRowBtn} onPress={addEmptyRow}>
+                <Pressable style={st.addRowBtn} onPress={addEmptyRow}>
                   <Ionicons name="add-circle-outline" size={20} color={colors.primary[600]} />
-                  <Text style={styles.addRowText}>Add product manually</Text>
+                  <Text style={st.addRowText}>Add product manually</Text>
                 </Pressable>
               }
             />
 
-            <View style={styles.bottomBar}>
+            <View style={st.bottomBar}>
               <Button
                 title={`Import ${rows.filter(isRowValid).length} products`}
                 onPress={handleSave}
@@ -478,23 +510,21 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
         {/* Step: Saving / Done */}
         {step === 'saving' && (
-          <View style={styles.processingContainer}>
+          <View style={st.centerContainer}>
             {saveResult ? (
               <>
                 <Ionicons name="checkmark-circle" size={64} color={colors.success} />
-                <Text style={styles.doneTitle}>Import Complete</Text>
-                <Text style={styles.doneDesc}>
+                <Text style={st.doneTitle}>Import Complete</Text>
+                <Text style={st.doneDesc}>
                   {saveResult.created} product{saveResult.created !== 1 ? 's' : ''} imported
-                  {saveResult.skipped > 0
-                    ? ` (${saveResult.skipped} skipped as duplicates)`
-                    : ''}
+                  {saveResult.skipped > 0 ? ` (${saveResult.skipped} skipped as duplicates)` : ''}
                 </Text>
-                <Button title="Done" onPress={handleClose} style={styles.doneBtn} />
+                <Button title="Done" onPress={handleClose} style={st.doneBtn} />
               </>
             ) : (
               <>
                 <ActivityIndicator size="large" color={colors.primary[600]} />
-                <Text style={styles.processingText}>
+                <Text style={st.processingText}>
                   Saving {rows.filter(isRowValid).length} products...
                 </Text>
               </>
@@ -506,202 +536,72 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.surface[50],
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  title: {
-    fontFamily: font.bold,
-    fontSize: 20,
-    color: colors.text,
-  },
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.surface[50] },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.white },
+  title: { fontFamily: font.bold, fontSize: 20, color: colors.text },
 
-  captureContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-  captureIcon: {
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  captureTitle: {
-    fontFamily: font.bold,
-    fontSize: 22,
-    color: colors.text,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
-  },
-  captureDesc: {
-    fontFamily: font.regular,
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: spacing.lg,
-  },
-  captureBtn: {
-    marginBottom: spacing.sm,
-  },
+  captureContainer: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.xl },
+  captureIcon: { alignItems: 'center', marginBottom: spacing.lg },
+  captureTitle: { fontFamily: font.bold, fontSize: 22, color: colors.text, textAlign: 'center', marginBottom: spacing.sm },
+  captureDesc: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: spacing.lg },
+  captureBtn: { marginBottom: spacing.sm },
 
-  processingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-  processingText: {
-    fontFamily: font.medium,
-    fontSize: 16,
-    color: colors.textMuted,
-    marginTop: spacing.lg,
-    textAlign: 'center',
-  },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
+  processingText: { fontFamily: font.medium, fontSize: 16, color: colors.textMuted, marginTop: spacing.lg, textAlign: 'center' },
 
-  reviewContainer: {
-    flex: 1,
-  },
-  reviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  reviewCount: {
-    fontFamily: font.semiBold,
-    fontSize: 16,
-    color: colors.text,
-  },
-  rescanText: {
-    fontFamily: font.medium,
-    fontSize: 14,
-    color: colors.primary[600],
-  },
-  dealerRow: {
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  listContent: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: 100,
-  },
+  reviewContainer: { flex: 1 },
+  reviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  reviewCount: { fontFamily: font.semiBold, fontSize: 16, color: colors.text },
+  rescanText: { fontFamily: font.medium, fontSize: 14, color: colors.primary[600] },
+  dealerRow: { paddingHorizontal: spacing.md, marginBottom: spacing.xs },
+  listContent: { paddingHorizontal: spacing.md, paddingBottom: 100 },
 
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  removeBtn: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    zIndex: 1,
-    padding: 4,
-  },
-  sectionLabel: {
-    fontFamily: font.semiBold,
-    fontSize: 11,
-    color: colors.textMuted,
-    letterSpacing: 1,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-  },
-  fieldRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  fieldHalf: {
-    flex: 1,
-  },
-  fieldThird: {
-    flex: 1,
-  },
-  marginText: {
-    fontFamily: font.medium,
-    fontSize: 13,
-    color: colors.success,
-    backgroundColor: '#f0fdf4',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 8,
-    marginBottom: spacing.xs,
-    overflow: 'hidden',
-  },
-  totalUnitsText: {
-    fontFamily: font.medium,
-    fontSize: 13,
-    color: colors.primary[700],
-    backgroundColor: colors.primary[50],
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 8,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  addRowBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.md,
-    marginTop: spacing.sm,
-  },
-  addRowText: {
-    fontFamily: font.medium,
-    fontSize: 15,
-    color: colors.primary[600],
-  },
+  // Card
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
+  cardBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary[50], alignItems: 'center', justifyContent: 'center' },
+  cardBadgeText: { fontFamily: font.semiBold, fontSize: 12, color: colors.primary[700] },
+  removeBtn: { padding: 4 },
 
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing.md,
-    backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
+  nameInput: { minHeight: 48 },
 
-  doneTitle: {
-    fontFamily: font.bold,
-    fontSize: 22,
-    color: colors.text,
-    marginTop: spacing.lg,
-  },
-  doneDesc: {
-    fontFamily: font.regular,
-    fontSize: 15,
-    color: colors.textMuted,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-  doneBtn: {
-    marginTop: spacing.xl,
-    minWidth: 160,
-  },
+  secLabel: { fontFamily: font.semiBold, fontSize: 11, color: colors.textMuted, letterSpacing: 1, marginTop: spacing.sm, marginBottom: spacing.xs },
+  row3: { flexDirection: 'row', gap: spacing.sm },
+  row2: { flexDirection: 'row', gap: spacing.sm },
+  col: { flex: 1 },
+  pkgLabelRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: 4 },
+  pkgLabel: { flex: 1, fontFamily: font.semiBold, fontSize: 12, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
 
-  errorText: {
-    fontFamily: font.regular,
-    fontSize: 13,
-    color: colors.danger,
-    textAlign: 'center',
-    marginVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-  },
+  // Unit selector
+  unitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, marginTop: 2 },
+  unitLabel: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  unitPills: { flexDirection: 'row', backgroundColor: colors.surface[100], borderRadius: 8, padding: 2 },
+  unitPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  unitPillActive: { backgroundColor: colors.primary[600] },
+  unitPillText: { fontFamily: font.semiBold, fontSize: 11, color: colors.textMuted },
+  unitPillTextActive: { color: colors.white },
+
+  // Warning & margin
+  warnBox: { backgroundColor: '#fffbeb', borderRadius: 8, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, marginBottom: spacing.xs },
+  warnText: { fontFamily: font.medium, fontSize: 12, color: '#b45309' },
+  marginText: { fontFamily: font.medium, fontSize: 12, color: colors.success, backgroundColor: '#f0fdf4', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 8, marginBottom: spacing.xs, overflow: 'hidden' },
+
+  // Auto calc
+  calcBox: { backgroundColor: colors.surface[50], borderRadius: 10, padding: spacing.sm, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border },
+  calcTitle: { fontFamily: font.semiBold, fontSize: 11, color: colors.textMuted, letterSpacing: 0.5, marginBottom: spacing.xs },
+  calcGrid: { gap: 2 },
+  calcItem: { fontFamily: font.regular, fontSize: 12, color: colors.text },
+  calcBold: { fontFamily: font.semiBold },
+
+  totalText: { fontFamily: font.medium, fontSize: 12, color: colors.primary[700], backgroundColor: colors.primary[50], paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: 6, marginBottom: spacing.sm, overflow: 'hidden' },
+
+  addRowBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, marginTop: spacing.sm },
+  addRowText: { fontFamily: font.medium, fontSize: 15, color: colors.primary[600] },
+  bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing.md, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.border },
+
+  doneTitle: { fontFamily: font.bold, fontSize: 22, color: colors.text, marginTop: spacing.lg },
+  doneDesc: { fontFamily: font.regular, fontSize: 15, color: colors.textMuted, marginTop: spacing.sm, textAlign: 'center' },
+  doneBtn: { marginTop: spacing.xl, minWidth: 160 },
+  errorText: { fontFamily: font.regular, fontSize: 13, color: colors.danger, textAlign: 'center', marginVertical: spacing.sm, paddingHorizontal: spacing.lg },
 });

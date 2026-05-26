@@ -409,19 +409,28 @@ export default function ProductsScreen() {
                 {stockFormOpen ? (
                   <View style={st.stockForm}>
                     <Text style={st.sfLabel}>QUANTITY</Text>
+                    <View style={st.pkgLabelRow}>
+                      <Text style={st.pkgLabel}>Boxes</Text>
+                      <Text style={st.pkgLabel}>Strips in 1 Box</Text>
+                      <Text style={st.pkgLabel}>Tablets in 1 Strip</Text>
+                    </View>
                     <View style={st.sfRow3}>
-                      <View style={st.sfCol}><Input label="Boxes" value={sfBoxes} onChangeText={setSfBoxes} keyboardType="numeric" placeholder="1" /></View>
-                      <View style={st.sfCol}><Input label="Strips/Box" value={sfStrips} onChangeText={setSfStrips} keyboardType="numeric" placeholder="1" /></View>
-                      <View style={st.sfCol}><Input label="Tabs/Strip" value={sfTabs} onChangeText={setSfTabs} keyboardType="numeric" placeholder="1" /></View>
+                      <View style={st.sfCol}><Input value={sfBoxes} onChangeText={setSfBoxes} keyboardType="numeric" placeholder="1" /></View>
+                      <View style={st.sfCol}><Input value={sfStrips} onChangeText={setSfStrips} keyboardType="numeric" placeholder="1" /></View>
+                      <View style={st.sfCol}><Input value={sfTabs} onChangeText={setSfTabs} keyboardType="numeric" placeholder="1" /></View>
                     </View>
                     <Text style={st.sfTotal}>Total: {sfTotalUnits} units</Text>
 
                     <Text style={st.sfLabel}>PRICING</Text>
                     <View style={st.sfRow3}>
-                      <View style={st.sfCol}><Input label="Sell" value={sfSell} onChangeText={setSfSell} keyboardType="decimal-pad" placeholder="0" /></View>
-                      <View style={st.sfCol}><Input label="MRP" value={sfMrp} onChangeText={setSfMrp} keyboardType="decimal-pad" placeholder="0" /></View>
-                      <View style={st.sfCol}><Input label="Cost" value={sfCost} onChangeText={setSfCost} keyboardType="decimal-pad" placeholder="0" /></View>
+                      <View style={st.sfCol}><Input label="MRP /Strip" value={sfMrp} onChangeText={(v) => { setSfMrp(v); if (!sfSell || sfSell === sfMrp) setSfSell(v); }} keyboardType="decimal-pad" placeholder="100" /></View>
+                      <View style={st.sfCol}><Input label="Sell /Strip" value={sfSell} onChangeText={setSfSell} keyboardType="decimal-pad" placeholder="95" /></View>
+                      <View style={st.sfCol}><Input label="Cost /Strip" value={sfCost} onChangeText={setSfCost} keyboardType="decimal-pad" placeholder="87.80" /></View>
                     </View>
+
+                    {parseFloat(sfSell) > 0 && parseFloat(sfMrp) > 0 && parseFloat(sfSell) > parseFloat(sfMrp) ? (
+                      <View style={st.warnBox}><Text style={st.warnBoxText}>⚠ Selling price is higher than MRP</Text></View>
+                    ) : null}
 
                     <View style={st.sfRow2}>
                       <View style={st.sfCol}><Input label="Batch" value={sfBatch} onChangeText={setSfBatch} placeholder="Batch" /></View>
@@ -526,10 +535,15 @@ export default function ProductsScreen() {
                 <View>
                   <View style={st.sec}>
                     <Text style={st.secTitle}>QUANTITY</Text>
+                    <View style={st.pkgLabelRow}>
+                      <Text style={st.pkgLabel}>Boxes</Text>
+                      <Text style={st.pkgLabel}>Strips in 1 Box</Text>
+                      <Text style={st.pkgLabel}>Tablets in 1 Strip</Text>
+                    </View>
                     <View style={st.sfRow3}>
-                      <View style={st.sfCol}><Input label="Boxes" value={emBoxes} onChangeText={setEmBoxes} keyboardType="numeric" placeholder="1" /></View>
-                      <View style={st.sfCol}><Input label="Strips/Box" value={emStrips} onChangeText={setEmStrips} keyboardType="numeric" placeholder="1" /></View>
-                      <View style={st.sfCol}><Input label="Tabs/Strip" value={emTabs} onChangeText={setEmTabs} keyboardType="numeric" placeholder="1" /></View>
+                      <View style={st.sfCol}><Input value={emBoxes} onChangeText={setEmBoxes} keyboardType="numeric" placeholder="1" /></View>
+                      <View style={st.sfCol}><Input value={emStrips} onChangeText={setEmStrips} keyboardType="numeric" placeholder="1" /></View>
+                      <View style={st.sfCol}><Input value={emTabs} onChangeText={setEmTabs} keyboardType="numeric" placeholder="1" /></View>
                     </View>
                     <Text style={st.sfTotal}>Total: {emTotalUnits} units</Text>
                   </View>
@@ -537,10 +551,13 @@ export default function ProductsScreen() {
                   <View style={st.sec}>
                     <Text style={st.secTitle}>PRICING</Text>
                     <View style={st.sfRow3}>
-                      <View style={st.sfCol}><Input label="Sell" value={emSell} onChangeText={setEmSell} keyboardType="decimal-pad" placeholder="0" /></View>
-                      <View style={st.sfCol}><Input label="MRP" value={emMrp} onChangeText={setEmMrp} keyboardType="decimal-pad" placeholder="0" /></View>
-                      <View style={st.sfCol}><Input label="Cost" value={emCost} onChangeText={setEmCost} keyboardType="decimal-pad" placeholder="0" /></View>
+                      <View style={st.sfCol}><Input label="MRP /Strip" value={emMrp} onChangeText={setEmMrp} keyboardType="decimal-pad" placeholder="100" /></View>
+                      <View style={st.sfCol}><Input label="Sell /Strip" value={emSell} onChangeText={setEmSell} keyboardType="decimal-pad" placeholder="95" /></View>
+                      <View style={st.sfCol}><Input label="Cost /Strip" value={emCost} onChangeText={setEmCost} keyboardType="decimal-pad" placeholder="87.80" /></View>
                     </View>
+                    {parseFloat(emSell) > 0 && parseFloat(emMrp) > 0 && parseFloat(emSell) > parseFloat(emMrp) ? (
+                      <View style={st.warnBox}><Text style={st.warnBoxText}>⚠ Selling price is higher than MRP</Text></View>
+                    ) : null}
                   </View>
 
                   <View style={st.sec}>
@@ -730,6 +747,10 @@ const st = StyleSheet.create({
   sfRow2: { flexDirection: 'row', gap: spacing.sm },
   sfCol: { flex: 1 },
   sfTotal: { fontFamily: font.medium, fontSize: 12, color: colors.primary[700], backgroundColor: colors.primary[50], paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: 6, marginBottom: spacing.xs, overflow: 'hidden' },
+  pkgLabelRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: 4 },
+  pkgLabel: { flex: 1, fontFamily: font.semiBold, fontSize: 12, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  warnBox: { backgroundColor: '#fffbeb', borderRadius: 8, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, marginBottom: spacing.xs },
+  warnBoxText: { fontFamily: font.medium, fontSize: 12, color: '#b45309' },
 
   // Detail items
   detailItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },

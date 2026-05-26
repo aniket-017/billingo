@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 import { colors, font, radius, spacing } from '../theme';
 
@@ -9,18 +9,23 @@ type Props = TextInputProps & {
 
 export default function Input({ label, error, style, ...props }: Props) {
   const [focused, setFocused] = useState(false);
+  const ref = useRef<TextInput>(null);
+
+  const isNumeric = props.keyboardType === 'numeric' || props.keyboardType === 'decimal-pad';
 
   return (
     <View style={styles.wrap}>
       {label ? (
-        <Text style={[styles.label, focused && styles.labelFocused]}>
+        <Text style={[styles.label, focused && styles.labelFocused]} numberOfLines={1}>
           {label}
         </Text>
       ) : null}
       <TextInput
+        ref={ref}
         placeholderTextColor={colors.surface[300]}
-        cursorColor={colors.primary[600]}
-        selectionColor={colors.primary[100]}
+        cursorColor={colors.text}
+        selectionColor="rgba(59,130,246,0.25)"
+        selectTextOnFocus={isNumeric}
         onFocus={(e) => {
           setFocused(true);
           props.onFocus?.(e);
@@ -47,10 +52,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   label: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: font.semiBold,
     color: colors.textMuted,
-    marginBottom: 6,
+    marginBottom: 4,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -62,7 +67,7 @@ const styles = StyleSheet.create({
     borderColor: colors.surface[200],
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: 14,
+    paddingVertical: 12,
     fontSize: 16,
     fontFamily: font.regular,
     color: colors.text,
