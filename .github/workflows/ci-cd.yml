@@ -86,7 +86,7 @@ jobs:
            echo "🚀 Starting or restarting PM2 process"
            if pm2 list | grep -q "billingo"; then
              echo "🔁 Restarting billingo"
-             pm2 restart    
+             pm2 restart billingo
            else
              echo "▶️ Starting billingo"
              pm2 start npm --name "billingo" -- start
