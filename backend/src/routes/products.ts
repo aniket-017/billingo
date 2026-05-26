@@ -104,8 +104,8 @@ router.post('/parse-invoice', async (req, res) => {
         error: `ocrText must be at most ${MAX_OCR_TEXT_LENGTH} characters`,
       });
     }
-    const products = await parseInvoiceOcr(ocrText);
-    res.json({ products });
+    const result = await parseInvoiceOcr(ocrText);
+    res.json(result);
   } catch (e) {
     const msg = (e as Error).message;
     if (msg === 'AI_NOT_CONFIGURED' || msg === 'DEEPSEEK_NOT_CONFIGURED' || msg === 'GEMINI_NOT_CONFIGURED') {
@@ -165,15 +165,21 @@ router.post('/bulk-create', async (req, res) => {
           barcode,
           name,
           price,
+          mrp: item.mrp != null && item.mrp !== '' ? Math.max(0, Number(item.mrp)) : null,
+          sellingPrice: item.sellingPrice != null && item.sellingPrice !== '' ? Math.max(0, Number(item.sellingPrice)) : null,
           unit: item.unit || 'pcs',
           description: item.description || '',
           category: item.category != null ? String(item.category).trim() : '',
           batchNo: item.batchNo != null ? String(item.batchNo).trim() : '',
           expiryDate: item.expiryDate || null,
           packSize: item.packSize != null ? Math.max(1, Number(item.packSize)) : 1,
+          numBoxes: item.numBoxes != null ? Math.max(1, Number(item.numBoxes)) : 1,
+          stripsPerBox: item.stripsPerBox != null ? Math.max(1, Number(item.stripsPerBox)) : 1,
+          tabletsPerStrip: item.tabletsPerStrip != null ? Math.max(1, Number(item.tabletsPerStrip)) : 1,
           reorderLevel: item.reorderLevel != null ? Math.max(0, Number(item.reorderLevel)) : 0,
           costPrice:
             item.costPrice != null && item.costPrice !== '' ? Math.max(0, Number(item.costPrice)) : null,
+          dealerName: item.dealerName != null ? String(item.dealerName).trim() : '',
         });
 
         const opening = item.openingQuantity != null ? Math.max(0, Number(item.openingQuantity)) : 0;
@@ -232,7 +238,7 @@ router.post('/generate-barcode', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const tenant = getTenantDb(req);
-    const { barcode, name, price, unit, description, category, batchNo, expiryDate, packSize, openingQuantity, reorderLevel, costPrice } =
+    const { barcode, name, price, mrp, sellingPrice, unit, description, category, batchNo, expiryDate, packSize, numBoxes, stripsPerBox, tabletsPerStrip, openingQuantity, reorderLevel, costPrice, dealerName } =
       req.body;
     if (!barcode || !name || price == null) {
       return res.status(400).json({ error: 'barcode, name, and price are required' });
@@ -242,15 +248,21 @@ router.post('/', async (req, res) => {
         barcode: String(barcode).trim(),
         name: String(name).trim(),
         price: Number(price),
+        mrp: mrp != null && mrp !== '' ? Math.max(0, Number(mrp)) : null,
+        sellingPrice: sellingPrice != null && sellingPrice !== '' ? Math.max(0, Number(sellingPrice)) : null,
         unit: unit || 'pcs',
         description: description || '',
         category: category != null ? String(category).trim() : '',
         batchNo: batchNo != null ? String(batchNo).trim() : '',
         expiryDate: expiryDate || null,
         packSize: packSize != null ? Math.max(1, Number(packSize)) : 1,
+        numBoxes: numBoxes != null ? Math.max(1, Number(numBoxes)) : 1,
+        stripsPerBox: stripsPerBox != null ? Math.max(1, Number(stripsPerBox)) : 1,
+        tabletsPerStrip: tabletsPerStrip != null ? Math.max(1, Number(tabletsPerStrip)) : 1,
         reorderLevel: reorderLevel != null ? Math.max(0, Number(reorderLevel)) : 0,
         costPrice:
           costPrice != null && costPrice !== '' ? Math.max(0, Number(costPrice)) : null,
+        dealerName: dealerName != null ? String(dealerName).trim() : '',
       });
       const opening = openingQuantity != null ? Math.max(0, Number(openingQuantity)) : 0;
       if (opening > 0) {
@@ -280,23 +292,29 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { barcode, name, price, unit, description, category, batchNo, expiryDate, packSize, reorderLevel, costPrice } = req.body;
+    const { barcode, name, price, mrp, sellingPrice, unit, description, category, batchNo, expiryDate, packSize, numBoxes, stripsPerBox, tabletsPerStrip, reorderLevel, costPrice, dealerName } = req.body;
     try {
       const product = await getTenantDb(req).updateProduct(req.params.id, {
         ...(barcode !== undefined && { barcode: String(barcode).trim() }),
         ...(name !== undefined && { name: String(name).trim() }),
         ...(price !== undefined && { price: Number(price) }),
+        ...(mrp !== undefined && { mrp: mrp === '' || mrp == null ? null : Math.max(0, Number(mrp)) }),
+        ...(sellingPrice !== undefined && { sellingPrice: sellingPrice === '' || sellingPrice == null ? null : Math.max(0, Number(sellingPrice)) }),
         ...(unit !== undefined && { unit }),
         ...(description !== undefined && { description }),
         ...(category !== undefined && { category: String(category).trim() }),
         ...(batchNo !== undefined && { batchNo: String(batchNo).trim() }),
         ...(expiryDate !== undefined && { expiryDate: expiryDate || null }),
         ...(packSize !== undefined && { packSize: Math.max(1, Number(packSize)) }),
+        ...(numBoxes !== undefined && { numBoxes: Math.max(1, Number(numBoxes)) }),
+        ...(stripsPerBox !== undefined && { stripsPerBox: Math.max(1, Number(stripsPerBox)) }),
+        ...(tabletsPerStrip !== undefined && { tabletsPerStrip: Math.max(1, Number(tabletsPerStrip)) }),
         ...(reorderLevel !== undefined && { reorderLevel: Math.max(0, Number(reorderLevel)) }),
         ...(costPrice !== undefined && {
           costPrice:
             costPrice === '' || costPrice == null ? null : Math.max(0, Number(costPrice)),
         }),
+        ...(dealerName !== undefined && { dealerName: String(dealerName).trim() }),
       });
       if (!product) return res.status(404).json({ error: 'Product not found' });
       res.json(product);

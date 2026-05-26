@@ -31,6 +31,8 @@ function mapProduct(row: Record<string, unknown>): TenantProduct {
     barcode: String(row.barcode),
     name: String(row.name),
     price: toNum(row.price),
+    mrp: row.mrp != null ? toNum(row.mrp) : null,
+    sellingPrice: row.selling_price != null ? toNum(row.selling_price) : null,
     unit: String(row.unit ?? 'pcs'),
     description: String(row.description ?? ''),
     category: String(row.category ?? ''),
@@ -39,9 +41,13 @@ function mapProduct(row: Record<string, unknown>): TenantProduct {
       ? new Date(row.expiry_date as string | Date).toISOString().slice(0, 10)
       : null,
     packSize: Number(row.pack_size ?? 1),
+    numBoxes: Number(row.num_boxes ?? 1),
+    stripsPerBox: Number(row.strips_per_box ?? 1),
+    tabletsPerStrip: Number(row.tablets_per_strip ?? 1),
     quantityOnHand: Number(row.quantity_on_hand ?? 0),
     reorderLevel: Number(row.reorder_level ?? 0),
     costPrice: row.cost_price != null ? toNum(row.cost_price) : null,
+    dealerName: String(row.dealer_name ?? ''),
     createdAt: new Date(row.created_at as string | Date).toISOString(),
     updatedAt: new Date(row.updated_at as string | Date).toISOString(),
   };
@@ -79,6 +85,17 @@ function mapMovement(row: Record<string, unknown>): TenantStockMovement {
     referenceId: row.reference_id ? String(row.reference_id) : null,
     referenceLabel: String(row.reference_label ?? ''),
     notes: String(row.notes ?? ''),
+    dealerName: String(row.dealer_name ?? ''),
+    batchNo: String(row.batch_no ?? ''),
+    expiryDate: row.expiry_date
+      ? new Date(row.expiry_date as string | Date).toISOString().slice(0, 10)
+      : null,
+    costPrice: row.cost_price != null ? toNum(row.cost_price) : null,
+    mrp: row.mrp != null ? toNum(row.mrp) : null,
+    sellingPrice: row.selling_price != null ? toNum(row.selling_price) : null,
+    numBoxes: Number(row.num_boxes ?? 1),
+    stripsPerBox: Number(row.strips_per_box ?? 1),
+    tabletsPerStrip: Number(row.tablets_per_strip ?? 1),
     createdByEmail: String(row.created_by_email ?? ''),
     createdByName: String(row.created_by_name ?? ''),
     createdAt: new Date(row.created_at as string | Date).toISOString(),
@@ -187,31 +204,43 @@ export class TenantDb {
     barcode: string;
     name: string;
     price: number;
+    mrp?: number | null;
+    sellingPrice?: number | null;
     unit?: string;
     description?: string;
     category?: string;
     batchNo?: string;
     expiryDate?: string | null;
     packSize?: number;
+    numBoxes?: number;
+    stripsPerBox?: number;
+    tabletsPerStrip?: number;
     reorderLevel?: number;
     costPrice?: number | null;
+    dealerName?: string;
   }): Promise<TenantProduct> {
     const expiry = data.expiryDate ? new Date(data.expiryDate) : null;
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO ${Prisma.raw(`${this.s}.products`)}
-        (barcode, name, price, unit, description, category, batch_no, expiry_date, pack_size, reorder_level, cost_price)
+        (barcode, name, price, mrp, selling_price, unit, description, category, batch_no, expiry_date, pack_size, num_boxes, strips_per_box, tablets_per_strip, reorder_level, cost_price, dealer_name)
       VALUES (
         ${data.barcode},
         ${data.name},
         ${data.price},
+        ${data.mrp ?? null},
+        ${data.sellingPrice ?? null},
         ${data.unit ?? 'pcs'},
         ${data.description ?? ''},
         ${data.category ?? ''},
         ${data.batchNo ?? ''},
         ${expiry},
         ${data.packSize ?? 1},
+        ${data.numBoxes ?? 1},
+        ${data.stripsPerBox ?? 1},
+        ${data.tabletsPerStrip ?? 1},
         ${data.reorderLevel ?? 0},
-        ${data.costPrice ?? null}
+        ${data.costPrice ?? null},
+        ${data.dealerName ?? ''}
       )
       RETURNING *
     `;
@@ -224,14 +253,20 @@ export class TenantDb {
       barcode: string;
       name: string;
       price: number;
+      mrp: number | null;
+      sellingPrice: number | null;
       unit: string;
       description: string;
       category: string;
       batchNo: string;
       expiryDate: string | null;
       packSize: number;
+      numBoxes: number;
+      stripsPerBox: number;
+      tabletsPerStrip: number;
       reorderLevel: number;
       costPrice: number | null;
+      dealerName: string;
     }>
   ): Promise<TenantProduct | null> {
     const current = await this.getProduct(id);
@@ -244,14 +279,20 @@ export class TenantDb {
       SET barcode = ${data.barcode ?? current.barcode},
           name = ${data.name ?? current.name},
           price = ${data.price ?? current.price},
+          mrp = ${data.mrp !== undefined ? data.mrp : current.mrp},
+          selling_price = ${data.sellingPrice !== undefined ? data.sellingPrice : current.sellingPrice},
           unit = ${data.unit ?? current.unit},
           description = ${data.description ?? current.description},
           category = ${data.category ?? current.category},
           batch_no = ${data.batchNo ?? current.batchNo},
           expiry_date = ${expiry},
           pack_size = ${data.packSize ?? current.packSize},
+          num_boxes = ${data.numBoxes ?? current.numBoxes},
+          strips_per_box = ${data.stripsPerBox ?? current.stripsPerBox},
+          tablets_per_strip = ${data.tabletsPerStrip ?? current.tabletsPerStrip},
           reorder_level = ${data.reorderLevel ?? current.reorderLevel},
           cost_price = ${data.costPrice !== undefined ? data.costPrice : current.costPrice},
+          dealer_name = ${data.dealerName ?? current.dealerName},
           updated_at = NOW()
       WHERE id = ${id}::uuid
       RETURNING *
@@ -425,12 +466,25 @@ export class TenantDb {
     referenceId?: string | null;
     referenceLabel?: string;
     notes?: string;
+    dealerName?: string;
+    batchNo?: string;
+    expiryDate?: string | null;
+    costPrice?: number | null;
+    mrp?: number | null;
+    sellingPrice?: number | null;
+    numBoxes?: number;
+    stripsPerBox?: number;
+    tabletsPerStrip?: number;
     createdByEmail?: string;
     createdByName?: string;
   }): Promise<TenantStockMovement> {
+    const expiryVal = data.expiryDate ? new Date(data.expiryDate) : null;
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO ${Prisma.raw(`${this.s}.stock_movements`)}
-        (product_id, type, quantity, balance_after, date, reference_type, reference_id, reference_label, notes, created_by_email, created_by_name)
+        (product_id, type, quantity, balance_after, date, reference_type, reference_id, reference_label, notes,
+         dealer_name, batch_no, expiry_date, cost_price, mrp, selling_price,
+         num_boxes, strips_per_box, tablets_per_strip,
+         created_by_email, created_by_name)
       VALUES (
         ${data.productId}::uuid,
         ${data.type},
@@ -441,12 +495,70 @@ export class TenantDb {
         ${data.referenceId ?? null},
         ${data.referenceLabel ?? ''},
         ${data.notes ?? ''},
+        ${data.dealerName ?? ''},
+        ${data.batchNo ?? ''},
+        ${expiryVal}::date,
+        ${data.costPrice ?? null},
+        ${data.mrp ?? null},
+        ${data.sellingPrice ?? null},
+        ${data.numBoxes ?? 1},
+        ${data.stripsPerBox ?? 1},
+        ${data.tabletsPerStrip ?? 1},
         ${data.createdByEmail ?? ''},
         ${data.createdByName ?? ''}
       )
       RETURNING *
     `;
     return mapMovement(rows[0]);
+  }
+
+  async getMovement(id: string): Promise<TenantStockMovement | null> {
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT m.*, p.name AS p_name, p.barcode AS p_barcode, p.unit AS p_unit
+      FROM ${Prisma.raw(`${this.s}.stock_movements`)} m
+      LEFT JOIN ${Prisma.raw(`${this.s}.products`)} p ON p.id = m.product_id
+      WHERE m.id = ${id}::uuid
+      LIMIT 1
+    `;
+    return rows.length ? mapMovement(rows[0]) : null;
+  }
+
+  async updateMovement(id: string, data: {
+    quantity?: number;
+    dealerName?: string;
+    batchNo?: string;
+    expiryDate?: string | null;
+    costPrice?: number | null;
+    mrp?: number | null;
+    sellingPrice?: number | null;
+    numBoxes?: number;
+    stripsPerBox?: number;
+    tabletsPerStrip?: number;
+    notes?: string;
+  }): Promise<TenantStockMovement | null> {
+    const sets: Prisma.Sql[] = [];
+    if (data.quantity !== undefined) sets.push(Prisma.sql`quantity = ${data.quantity}`);
+    if (data.dealerName !== undefined) sets.push(Prisma.sql`dealer_name = ${data.dealerName}`);
+    if (data.batchNo !== undefined) sets.push(Prisma.sql`batch_no = ${data.batchNo}`);
+    if (data.expiryDate !== undefined) {
+      const expiryVal = data.expiryDate ? new Date(data.expiryDate) : null;
+      sets.push(Prisma.sql`expiry_date = ${expiryVal}::date`);
+    }
+    if (data.costPrice !== undefined) sets.push(Prisma.sql`cost_price = ${data.costPrice}`);
+    if (data.mrp !== undefined) sets.push(Prisma.sql`mrp = ${data.mrp}`);
+    if (data.sellingPrice !== undefined) sets.push(Prisma.sql`selling_price = ${data.sellingPrice}`);
+    if (data.numBoxes !== undefined) sets.push(Prisma.sql`num_boxes = ${data.numBoxes}`);
+    if (data.stripsPerBox !== undefined) sets.push(Prisma.sql`strips_per_box = ${data.stripsPerBox}`);
+    if (data.tabletsPerStrip !== undefined) sets.push(Prisma.sql`tablets_per_strip = ${data.tabletsPerStrip}`);
+    if (data.notes !== undefined) sets.push(Prisma.sql`notes = ${data.notes}`);
+    if (sets.length === 0) return this.getMovement(id);
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      UPDATE ${Prisma.raw(`${this.s}.stock_movements`)}
+      SET ${Prisma.join(sets, ', ')}
+      WHERE id = ${id}::uuid
+      RETURNING *
+    `;
+    return rows.length ? mapMovement(rows[0]) : null;
   }
 
   async linkSaleMovementsToInvoice(invoiceId: string, invoiceNumber: string): Promise<void> {

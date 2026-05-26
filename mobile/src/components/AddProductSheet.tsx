@@ -16,6 +16,17 @@ import Input from '@/src/components/Input';
 import { useProductNameOcr } from '@/src/hooks/useProductNameOcr';
 import { colors, font, radius, spacing } from '@/src/theme';
 
+function parseExpiryToDate(val: string): string {
+  if (!val) return '';
+  const parts = val.split('/');
+  if (parts.length === 2) {
+    const mm = parts[0].padStart(2, '0');
+    const yyyy = parts[1].length === 2 ? '20' + parts[1] : parts[1];
+    return `${yyyy}-${mm}-01`;
+  }
+  return val;
+}
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -28,13 +39,22 @@ type Props = {
   title?: string;
   submitLabel?: string;
   autoGenerateBarcode?: boolean;
+  initialDealerName?: string;
 };
 
 type FormState = {
   barcode: string;
   name: string;
-  price: string;
-  openingQuantity: string;
+  sellingPrice: string;
+  mrp: string;
+  purchasePrice: string;
+  numBoxes: string;
+  stripsPerBox: string;
+  tabletsPerStrip: string;
+  batchNo: string;
+  expiry: string;
+  reorderLevel: string;
+  dealerName: string;
   category: string;
   unit: string;
 };
@@ -42,8 +62,16 @@ type FormState = {
 const emptyForm: FormState = {
   barcode: '',
   name: '',
-  price: '',
-  openingQuantity: '',
+  sellingPrice: '',
+  mrp: '',
+  purchasePrice: '',
+  numBoxes: '1',
+  stripsPerBox: '1',
+  tabletsPerStrip: '1',
+  batchNo: '',
+  expiry: '',
+  reorderLevel: '',
+  dealerName: '',
   category: '',
   unit: 'pcs',
 };
@@ -60,6 +88,7 @@ export default function AddProductSheet({
   title,
   submitLabel = 'Add product',
   autoGenerateBarcode = false,
+  initialDealerName = '',
 }: Props) {
   const insets = useSafeAreaInsets();
   const {
@@ -81,6 +110,32 @@ export default function AddProductSheet({
     return categorySuggestions.filter((c) => !q || c.toLowerCase().includes(q)).slice(0, 8);
   }, [categorySuggestions, form.category]);
 
+  const totalUnits = useMemo(() => {
+    const boxes = Math.max(1, parseInt(form.numBoxes) || 1);
+    const strips = Math.max(1, parseInt(form.stripsPerBox) || 1);
+    const tablets = Math.max(1, parseInt(form.tabletsPerStrip) || 1);
+    return boxes * strips * tablets;
+  }, [form.numBoxes, form.stripsPerBox, form.tabletsPerStrip]);
+
+  const marginInfo = useMemo(() => {
+    const mrp = parseFloat(form.mrp) || 0;
+    const purchase = parseFloat(form.purchasePrice) || 0;
+    if (mrp > 0 && purchase > 0) {
+      const margin = mrp - purchase;
+      const pct = (margin / mrp) * 100;
+      return { margin, pct };
+    }
+    return null;
+  }, [form.mrp, form.purchasePrice]);
+
+  const unitPrice = useMemo(() => {
+    const selling = parseFloat(form.sellingPrice) || parseFloat(form.mrp) || 0;
+    if (selling > 0 && totalUnits > 1) {
+      return (selling / totalUnits).toFixed(2);
+    }
+    return null;
+  }, [form.sellingPrice, form.mrp, totalUnits]);
+
   useEffect(() => {
     if (!visible) {
       setForm(emptyForm);
@@ -93,11 +148,12 @@ export default function AddProductSheet({
       ...emptyForm,
       barcode: initialBarcode,
       name: initialName,
+      dealerName: initialDealerName,
     });
     if (autoGenerateBarcode && !initialBarcode) {
       generateBarcode();
     }
-  }, [visible, initialBarcode, initialName, autoGenerateBarcode]);
+  }, [visible, initialBarcode, initialName, autoGenerateBarcode, initialDealerName]);
 
   async function generateBarcode() {
     setGeneratingBarcode(true);
@@ -124,22 +180,25 @@ export default function AddProductSheet({
   async function save() {
     const name = form.name.trim();
     const barcode = form.barcode.trim();
-    const price = parseFloat(form.price);
-    if (!name || !barcode || Number.isNaN(price)) {
-      setFormError('Name, barcode and price are required');
+    const sellingPrice = parseFloat(form.sellingPrice) || 0;
+    const mrp = parseFloat(form.mrp) || 0;
+    const purchasePrice = parseFloat(form.purchasePrice) || 0;
+    const price = sellingPrice || mrp;
+
+    if (!name || !barcode) {
+      setFormError('Name and barcode are required');
       return;
     }
-    if (price < 0) {
-      setFormError('Price must be zero or more');
+    if (price <= 0 && purchasePrice <= 0) {
+      setFormError('At least one price (Selling Price, MRP, or Purchase Price) is required');
       return;
     }
-    const openingQuantity = form.openingQuantity.trim()
-      ? Math.max(0, parseFloat(form.openingQuantity))
-      : 0;
-    if (form.openingQuantity.trim() && Number.isNaN(openingQuantity)) {
-      setFormError('Opening stock must be a number');
-      return;
-    }
+
+    const numBoxes = Math.max(1, parseInt(form.numBoxes) || 1);
+    const stripsPerBox = Math.max(1, parseInt(form.stripsPerBox) || 1);
+    const tabletsPerStrip = Math.max(1, parseInt(form.tabletsPerStrip) || 1);
+    const openingQuantity = numBoxes * stripsPerBox * tabletsPerStrip;
+    const reorderLevel = form.reorderLevel.trim() ? Math.max(0, parseInt(form.reorderLevel) || 0) : 0;
 
     setFormError('');
     setSaving(true);
@@ -147,10 +206,21 @@ export default function AddProductSheet({
       const product = await api.products.create({
         barcode,
         name,
-        price,
+        price: price || purchasePrice,
+        mrp: mrp || undefined,
+        sellingPrice: sellingPrice || undefined,
         unit: form.unit.trim() || 'pcs',
         category: form.category.trim(),
+        batchNo: form.batchNo.trim() || undefined,
+        expiryDate: parseExpiryToDate(form.expiry.trim()) || undefined,
+        numBoxes,
+        stripsPerBox,
+        tabletsPerStrip,
+        packSize: stripsPerBox * tabletsPerStrip,
         openingQuantity,
+        reorderLevel,
+        costPrice: purchasePrice || undefined,
+        dealerName: form.dealerName.trim() || undefined,
       });
       onSaved?.(product);
       onClose();
@@ -159,6 +229,13 @@ export default function AddProductSheet({
     } finally {
       setSaving(false);
     }
+  }
+
+  function updateField(field: keyof FormState) {
+    return (v: string) => {
+      setForm((f) => ({ ...f, [field]: v }));
+      if (formError) setFormError('');
+    };
   }
 
   return (
@@ -178,7 +255,7 @@ export default function AddProductSheet({
 
             {fromSale ? (
               <Text style={styles.hint}>
-                Barcode not found. Scan the label — AI will suggest the product name. Add price and stock.
+                Barcode not found. Scan the label — AI will suggest the product name.
               </Text>
             ) : (
               <Text style={styles.hint}>
@@ -186,7 +263,143 @@ export default function AddProductSheet({
               </Text>
             )}
 
-            <Text style={styles.fieldLabel}>Barcode</Text>
+            {/* --- Product Name --- */}
+            <Button
+              title="Scan label"
+              variant="secondary"
+              onPress={handleScanLabel}
+              loading={ocrLoading}
+              style={styles.ocrBtn}
+            />
+            {ocrWarning ? <Text style={styles.ocrWarning}>{ocrWarning}</Text> : null}
+            {ocrError ? <Text style={styles.ocrError}>{ocrError}</Text> : null}
+
+            <Input
+              label="Product Name"
+              value={form.name}
+              onChangeText={updateField('name')}
+              placeholder="Product name"
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              style={styles.nameInput}
+            />
+
+            {/* --- Pricing Section --- */}
+            <Text style={styles.sectionLabel}>PRICING</Text>
+            <View style={styles.fieldRow}>
+              <View style={styles.fieldThird}>
+                <Input
+                  label="Sell Price"
+                  value={form.sellingPrice}
+                  onChangeText={updateField('sellingPrice')}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={styles.fieldThird}>
+                <Input
+                  label="MRP"
+                  value={form.mrp}
+                  onChangeText={updateField('mrp')}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={styles.fieldThird}>
+                <Input
+                  label="Cost Price"
+                  value={form.purchasePrice}
+                  onChangeText={updateField('purchasePrice')}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+
+            {marginInfo ? (
+              <Text style={styles.marginText}>
+                Margin: Rs {marginInfo.margin.toFixed(2)} ({marginInfo.pct.toFixed(1)}%)
+              </Text>
+            ) : null}
+
+            {/* --- Quantity Section --- */}
+            <Text style={styles.sectionLabel}>QUANTITY</Text>
+            <View style={styles.fieldRow}>
+              <View style={styles.fieldThird}>
+                <Input
+                  label="Boxes"
+                  value={form.numBoxes}
+                  onChangeText={updateField('numBoxes')}
+                  placeholder="1"
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={styles.fieldThird}>
+                <Input
+                  label="Strips/Box"
+                  value={form.stripsPerBox}
+                  onChangeText={updateField('stripsPerBox')}
+                  placeholder="1"
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={styles.fieldThird}>
+                <Input
+                  label="Tabs/Strip"
+                  value={form.tabletsPerStrip}
+                  onChangeText={updateField('tabletsPerStrip')}
+                  placeholder="1"
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+
+            <Text style={styles.totalUnitsText}>
+              Total units: {totalUnits}
+              {unitPrice ? `  •  Rs ${unitPrice}/unit` : ''}
+            </Text>
+
+            {/* --- Batch & Expiry --- */}
+            <Text style={styles.sectionLabel}>BATCH & EXPIRY</Text>
+            <View style={styles.fieldRow}>
+              <View style={styles.fieldHalf}>
+                <Input
+                  label="Batch"
+                  value={form.batchNo}
+                  onChangeText={updateField('batchNo')}
+                  placeholder="Batch"
+                />
+              </View>
+              <View style={styles.fieldHalf}>
+                <Input
+                  label="Expiry"
+                  value={form.expiry}
+                  onChangeText={updateField('expiry')}
+                  placeholder="MM/YYYY"
+                />
+              </View>
+            </View>
+
+            {/* --- Low Stock Alert --- */}
+            <Input
+              label="Low Stock Alert"
+              value={form.reorderLevel}
+              onChangeText={updateField('reorderLevel')}
+              placeholder="Alert when stock falls below..."
+              keyboardType="numeric"
+            />
+
+            {/* --- Dealer Name --- */}
+            <Input
+              label="Dealer Name"
+              value={form.dealerName}
+              onChangeText={updateField('dealerName')}
+              placeholder="Dealer name"
+            />
+
+            {/* --- Barcode --- */}
+            <Text style={styles.sectionLabel}>BARCODE</Text>
             <View style={styles.barcodeRow}>
               <Input
                 value={form.barcode}
@@ -211,54 +424,12 @@ export default function AddProductSheet({
               ) : null}
             </View>
 
-            <Button
-              title="Scan label"
-              variant="secondary"
-              onPress={handleScanLabel}
-              loading={ocrLoading}
-              style={styles.ocrBtn}
-            />
-            {ocrWarning ? <Text style={styles.ocrWarning}>{ocrWarning}</Text> : null}
-            {ocrError ? <Text style={styles.ocrError}>{ocrError}</Text> : null}
-
-            <Input
-              label="Name"
-              value={form.name}
-              onChangeText={(v) => {
-                setForm((f) => ({ ...f, name: v }));
-                if (formError) setFormError('');
-              }}
-              placeholder="Product name"
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              style={styles.nameInput}
-            />
-
-            <Input
-              label="Price (₹)"
-              value={form.price}
-              onChangeText={(v) => {
-                setForm((f) => ({ ...f, price: v }));
-                if (formError) setFormError('');
-              }}
-              placeholder="0.00"
-              keyboardType="decimal-pad"
-            />
-
-            <Input
-              label="Opening stock"
-              value={form.openingQuantity}
-              onChangeText={(v) => setForm((f) => ({ ...f, openingQuantity: v }))}
-              placeholder="0"
-              keyboardType="number-pad"
-            />
-
+            {/* --- Category --- */}
             <Input
               label="Category"
               value={form.category}
-              onChangeText={(v) => setForm((f) => ({ ...f, category: v }))}
-              placeholder="e.g. Books, Grocery"
+              onChangeText={updateField('category')}
+              placeholder="e.g. Medicine, Grocery"
             />
 
             {filteredSuggestions.length > 0 ? (
@@ -299,7 +470,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     padding: spacing.lg,
-    maxHeight: '80%',
+    maxHeight: '90%',
   },
   modalTitle: {
     fontFamily: font.bold,
@@ -313,11 +484,23 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginBottom: spacing.md,
   },
-  fieldLabel: {
-    fontSize: 14,
-    fontFamily: font.medium,
-    color: colors.text,
+  sectionLabel: {
+    fontFamily: font.semiBold,
+    fontSize: 12,
+    color: colors.textMuted,
+    letterSpacing: 1,
+    marginTop: spacing.md,
     marginBottom: spacing.xs,
+  },
+  fieldRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  fieldHalf: {
+    flex: 1,
+  },
+  fieldThird: {
+    flex: 1,
   },
   barcodeRow: {
     flexDirection: 'row',
@@ -347,14 +530,36 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginBottom: spacing.sm,
   },
-  nameInput: {
-    minHeight: 96,
-  },
   ocrError: {
     fontFamily: font.regular,
     fontSize: 13,
     color: colors.danger,
     marginBottom: spacing.sm,
+  },
+  nameInput: {
+    minHeight: 72,
+  },
+  marginText: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.success,
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 8,
+    marginBottom: spacing.xs,
+    overflow: 'hidden',
+  },
+  totalUnitsText: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.primary[700],
+    backgroundColor: colors.primary[50],
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 8,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
   },
   suggestionRow: {
     flexDirection: 'row',

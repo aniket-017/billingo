@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
-const BASE = 'https://billingo.plan2automate.com/api';
+// const BASE = 'https://billingo.plan2automate.com/api';
+const BASE = 'http://10.255.155.117:1975/api';
 export const TOKEN_KEY = 'auth_token';
 
 let memoryToken: string | null = null;
@@ -46,15 +47,21 @@ export type Product = {
   barcode: string;
   name: string;
   price: number;
+  mrp?: number | null;
+  sellingPrice?: number | null;
   unit: string;
   description?: string;
   category?: string;
   batchNo?: string;
   expiryDate?: string | null;
   packSize?: number;
+  numBoxes?: number;
+  stripsPerBox?: number;
+  tabletsPerStrip?: number;
   quantityOnHand?: number;
   reorderLevel?: number;
   costPrice?: number | null;
+  dealerName?: string;
 };
 
 export type ParsedInvoiceProduct = {
@@ -62,24 +69,36 @@ export type ParsedInvoiceProduct = {
   qty: number;
   rate: number;
   mrp: number;
+  sellingPrice: number;
   batchNo: string;
   expiry: string;
   packSize: number;
+};
+
+export type ParsedInvoiceResult = {
+  dealerName: string;
+  products: ParsedInvoiceProduct[];
 };
 
 export type BulkCreateInput = {
   barcode?: string;
   name: string;
   price: number;
+  mrp?: number;
+  sellingPrice?: number;
   unit?: string;
   description?: string;
   category?: string;
   batchNo?: string;
   expiryDate?: string;
   packSize?: number;
+  numBoxes?: number;
+  stripsPerBox?: number;
+  tabletsPerStrip?: number;
   openingQuantity?: number;
   reorderLevel?: number;
   costPrice?: number;
+  dealerName?: string;
 };
 
 export type BulkCreateResult = {
@@ -98,6 +117,15 @@ export type StockMovement = {
   referenceId?: string | null;
   referenceLabel: string;
   notes: string;
+  dealerName?: string;
+  batchNo?: string;
+  expiryDate?: string | null;
+  costPrice?: number | null;
+  mrp?: number | null;
+  sellingPrice?: number | null;
+  numBoxes?: number;
+  stripsPerBox?: number;
+  tabletsPerStrip?: number;
   createdByEmail?: string;
   createdByName?: string;
   createdAt?: string;
@@ -183,7 +211,7 @@ export const api = {
         body: JSON.stringify({ ocrText }),
       }),
     parseInvoice: (ocrText: string) =>
-      request<{ products: ParsedInvoiceProduct[] }>('/products/parse-invoice', {
+      request<ParsedInvoiceResult>('/products/parse-invoice', {
         method: 'POST',
         body: JSON.stringify({ ocrText }),
       }),
@@ -196,12 +224,21 @@ export const api = {
       barcode: string;
       name: string;
       price: number;
+      mrp?: number;
+      sellingPrice?: number;
       unit?: string;
       description?: string;
       category?: string;
+      batchNo?: string;
+      expiryDate?: string;
+      packSize?: number;
+      numBoxes?: number;
+      stripsPerBox?: number;
+      tabletsPerStrip?: number;
       openingQuantity?: number;
       reorderLevel?: number;
       costPrice?: number;
+      dealerName?: string;
     }) => request<Product>('/products', { method: 'POST', body: JSON.stringify(body) }),
     update: (
       id: string,
@@ -209,11 +246,20 @@ export const api = {
         barcode: string;
         name: string;
         price: number;
+        mrp: number | null;
+        sellingPrice: number | null;
         unit: string;
         description: string;
         category: string;
+        batchNo: string;
+        expiryDate: string | null;
+        packSize: number;
+        numBoxes: number;
+        stripsPerBox: number;
+        tabletsPerStrip: number;
         reorderLevel: number;
         costPrice: number | '';
+        dealerName: string;
       }>
     ) => request<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
@@ -225,9 +271,36 @@ export const api = {
       notes?: string;
       referenceLabel?: string;
       costPrice?: number;
+      dealerName?: string;
+      batchNo?: string;
+      expiryDate?: string;
+      mrp?: number;
+      sellingPrice?: number;
+      numBoxes?: number;
+      stripsPerBox?: number;
+      tabletsPerStrip?: number;
     }) =>
       request<{ product: Product; movement: StockMovement }>('/inventory/stock-in', {
         method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    movementsByProduct: (productId: string) =>
+      request<StockMovement[]>(`/inventory/movements/product/${productId}`),
+    updateMovement: (id: string, body: {
+      quantity?: number;
+      dealerName?: string;
+      batchNo?: string;
+      expiryDate?: string | null;
+      costPrice?: number | null;
+      mrp?: number | null;
+      sellingPrice?: number | null;
+      numBoxes?: number;
+      stripsPerBox?: number;
+      tabletsPerStrip?: number;
+      notes?: string;
+    }) =>
+      request<StockMovement>(`/inventory/movements/${id}`, {
+        method: 'PUT',
         body: JSON.stringify(body),
       }),
   },

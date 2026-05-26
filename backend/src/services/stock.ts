@@ -33,6 +33,14 @@ export interface ApplyMovementInput {
   user?: AuthPayload;
   /** Purchase cost per unit when receiving stock; updates weighted average product cost. */
   costPrice?: number;
+  dealerName?: string;
+  batchNo?: string;
+  expiryDate?: string | null;
+  mrp?: number;
+  sellingPrice?: number;
+  numBoxes?: number;
+  stripsPerBox?: number;
+  tabletsPerStrip?: number;
 }
 
 export interface SaleLineItem {
@@ -99,6 +107,15 @@ export async function applyMovement(schemaName: string, input: ApplyMovementInpu
     referenceId: reference?.referenceId ?? null,
     referenceLabel: reference?.referenceLabel ?? '',
     notes: notes ?? '',
+    dealerName: input.dealerName ?? '',
+    batchNo: input.batchNo ?? '',
+    expiryDate: input.expiryDate ?? null,
+    costPrice: input.costPrice ?? null,
+    mrp: input.mrp ?? null,
+    sellingPrice: input.sellingPrice ?? null,
+    numBoxes: input.numBoxes ?? 1,
+    stripsPerBox: input.stripsPerBox ?? 1,
+    tabletsPerStrip: input.tabletsPerStrip ?? 1,
     createdByEmail: user?.email ?? '',
     createdByName: user?.name ?? '',
   });

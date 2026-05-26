@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -43,11 +43,28 @@ function extractFullText(result: OcrResult): string {
   return lines.map((l) => l.text.trim()).join('\n');
 }
 
-type EditableRow = ParsedInvoiceProduct & { key: string };
+type EditableRow = ParsedInvoiceProduct & {
+  key: string;
+  numBoxes: number;
+  stripsPerBox: number;
+  tabletsPerStrip: number;
+  reorderLevel: number;
+};
 
 let keyCounter = 0;
 function nextKey(): string {
   return `row_${++keyCounter}`;
+}
+
+function parseExpiryToDate(val: string): string {
+  if (!val) return '';
+  const parts = val.split('/');
+  if (parts.length === 2) {
+    const mm = parts[0].padStart(2, '0');
+    const yyyy = parts[1].length === 2 ? '20' + parts[1] : parts[1];
+    return `${yyyy}-${mm}-01`;
+  }
+  return val;
 }
 
 type Props = {
@@ -63,7 +80,7 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   const [step, setStep] = useState<Step>('capture');
   const [processingStatus, setProcessingStatus] = useState('');
   const [rows, setRows] = useState<EditableRow[]>([]);
-  const [defaultPackSize, setDefaultPackSize] = useState('10');
+  const [dealerName, setDealerName] = useState('');
   const [error, setError] = useState('');
   const [saveResult, setSaveResult] = useState<{ created: number; skipped: number } | null>(null);
 
@@ -71,6 +88,7 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     setStep('capture');
     setProcessingStatus('');
     setRows([]);
+    setDealerName('');
     setError('');
     setSaveResult(null);
   }, []);
@@ -116,18 +134,25 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
       setProcessingStatus('AI is extracting products...');
 
-      const { products } = await api.products.parseInvoice(fullText);
+      const parseResult = await api.products.parseInvoice(fullText);
 
-      if (!products || products.length === 0) {
+      if (!parseResult.products || parseResult.products.length === 0) {
         setError('No products could be detected. Try a clearer photo or add manually.');
         setStep('capture');
         return;
       }
 
-      const defPack = Math.max(1, parseInt(defaultPackSize) || 1);
-      const editableRows: EditableRow[] = products.map((p) => ({
+      if (parseResult.dealerName) {
+        setDealerName(parseResult.dealerName);
+      }
+
+      const editableRows: EditableRow[] = parseResult.products.map((p) => ({
         ...p,
-        packSize: p.packSize > 1 ? p.packSize : defPack,
+        packSize: p.packSize > 1 ? p.packSize : 1,
+        numBoxes: 1,
+        stripsPerBox: 1,
+        tabletsPerStrip: p.packSize > 1 ? p.packSize : 1,
+        reorderLevel: 0,
         key: nextKey(),
       }));
 
@@ -140,7 +165,7 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     }
   }
 
-  function updateRow(key: string, field: keyof ParsedInvoiceProduct, value: string | number) {
+  function updateRow(key: string, field: string, value: string | number) {
     setRows((prev) =>
       prev.map((r) => (r.key === key ? { ...r, [field]: value } : r))
     );
@@ -151,7 +176,6 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   }
 
   function addEmptyRow() {
-    const defPack = Math.max(1, parseInt(defaultPackSize) || 1);
     setRows((prev) => [
       ...prev,
       {
@@ -160,21 +184,26 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
         qty: 0,
         rate: 0,
         mrp: 0,
+        sellingPrice: 0,
         batchNo: '',
         expiry: '',
-        packSize: defPack,
+        packSize: 1,
+        numBoxes: 1,
+        stripsPerBox: 1,
+        tabletsPerStrip: 1,
+        reorderLevel: 0,
       },
     ]);
   }
 
   function isRowValid(r: EditableRow): boolean {
-    return Boolean(r.name.trim()) && (r.mrp > 0 || r.rate > 0);
+    return Boolean(r.name.trim()) && (r.mrp > 0 || r.rate > 0 || r.sellingPrice > 0);
   }
 
   async function handleSave() {
     const valid = rows.filter(isRowValid);
     if (valid.length === 0) {
-      setError('No valid products to import. Each needs a name and a selling price or purchase rate.');
+      setError('No valid products to import. Each needs a name and at least one price.');
       return;
     }
 
@@ -182,17 +211,27 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     setError('');
 
     try {
-      const payload = valid.map((r) => ({
-        name: r.name.trim(),
-        price: r.mrp > 0 ? r.mrp : r.rate,
-        unit: 'pcs' as const,
-        batchNo: r.batchNo,
-        expiryDate: r.expiry || undefined,
-        packSize: r.packSize,
-        openingQuantity: r.qty,
-        costPrice: r.rate > 0 ? r.rate : undefined,
-        category: 'Medicine',
-      }));
+      const payload = valid.map((r) => {
+        const price = r.sellingPrice > 0 ? r.sellingPrice : (r.mrp > 0 ? r.mrp : r.rate);
+        return {
+          name: r.name.trim(),
+          price,
+          mrp: r.mrp > 0 ? r.mrp : undefined,
+          sellingPrice: r.sellingPrice > 0 ? r.sellingPrice : undefined,
+          unit: 'pcs' as const,
+          batchNo: r.batchNo,
+          expiryDate: parseExpiryToDate(r.expiry) || undefined,
+          packSize: Math.max(1, r.stripsPerBox * r.tabletsPerStrip),
+          numBoxes: Math.max(1, r.numBoxes),
+          stripsPerBox: Math.max(1, r.stripsPerBox),
+          tabletsPerStrip: Math.max(1, r.tabletsPerStrip),
+          openingQuantity: Math.max(1, r.numBoxes) * Math.max(1, r.stripsPerBox) * Math.max(1, r.tabletsPerStrip),
+          reorderLevel: r.reorderLevel > 0 ? r.reorderLevel : undefined,
+          costPrice: r.rate > 0 ? r.rate : undefined,
+          dealerName: dealerName.trim() || undefined,
+          category: 'Medicine',
+        };
+      });
 
       const result = await api.products.bulkCreate(payload);
       setSaveResult({
@@ -208,9 +247,14 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   }
 
   function renderProductCard({ item }: { item: EditableRow }) {
-    const sellingPrice = item.mrp > 0 ? item.mrp : item.rate;
-    const perUnit = item.packSize > 1 && sellingPrice > 0
-      ? (sellingPrice / item.packSize).toFixed(2)
+    const totalUnits = Math.max(1, item.numBoxes) * Math.max(1, item.stripsPerBox) * Math.max(1, item.tabletsPerStrip);
+    const effectivePrice = item.sellingPrice > 0 ? item.sellingPrice : item.mrp;
+    const perUnit = totalUnits > 1 && effectivePrice > 0
+      ? (effectivePrice / totalUnits).toFixed(2)
+      : null;
+
+    const marginInfo = item.mrp > 0 && item.rate > 0
+      ? { margin: item.mrp - item.rate, pct: ((item.mrp - item.rate) / item.mrp) * 100 }
       : null;
 
     return (
@@ -223,22 +267,33 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
           label="Product Name"
           value={item.name}
           onChangeText={(v) => updateRow(item.key, 'name', v)}
-          placeholder="Medicine name"
+          placeholder="Product name"
         />
 
+        {/* Pricing */}
+        <Text style={styles.sectionLabel}>PRICING</Text>
         <View style={styles.fieldRow}>
-          <View style={styles.fieldHalf}>
+          <View style={styles.fieldThird}>
             <Input
-              label="Selling Price / MRP"
+              label="Sell Price"
+              value={item.sellingPrice ? String(item.sellingPrice) : ''}
+              onChangeText={(v) => updateRow(item.key, 'sellingPrice', parseFloat(v) || 0)}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+            />
+          </View>
+          <View style={styles.fieldThird}>
+            <Input
+              label="MRP"
               value={item.mrp ? String(item.mrp) : ''}
               onChangeText={(v) => updateRow(item.key, 'mrp', parseFloat(v) || 0)}
               keyboardType="decimal-pad"
               placeholder="0.00"
             />
           </View>
-          <View style={styles.fieldHalf}>
+          <View style={styles.fieldThird}>
             <Input
-              label="Purchase Rate"
+              label="Cost Price"
               value={item.rate ? String(item.rate) : ''}
               onChangeText={(v) => updateRow(item.key, 'rate', parseFloat(v) || 0)}
               keyboardType="decimal-pad"
@@ -247,43 +302,54 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
           </View>
         </View>
 
-        {item.mrp > 0 && item.rate > 0 ? (
+        {marginInfo ? (
           <Text style={styles.marginText}>
-            Margin: Rs {(item.mrp - item.rate).toFixed(2)} ({((item.mrp - item.rate) / item.mrp * 100).toFixed(1)}%)
+            Margin: Rs {marginInfo.margin.toFixed(2)} ({marginInfo.pct.toFixed(1)}%)
           </Text>
         ) : null}
 
-        {perUnit ? (
-          <Text style={styles.perUnitText}>
-            Rs {perUnit}/unit ({item.packSize} per strip)
-          </Text>
-        ) : null}
-
+        {/* Quantity */}
+        <Text style={styles.sectionLabel}>QUANTITY</Text>
         <View style={styles.fieldRow}>
-          <View style={styles.fieldHalf}>
+          <View style={styles.fieldThird}>
             <Input
-              label="Qty"
-              value={item.qty ? String(item.qty) : ''}
-              onChangeText={(v) => updateRow(item.key, 'qty', parseFloat(v) || 0)}
+              label="Boxes"
+              value={String(item.numBoxes)}
+              onChangeText={(v) => updateRow(item.key, 'numBoxes', Math.max(1, parseInt(v) || 1))}
               keyboardType="numeric"
-              placeholder="0"
+              placeholder="1"
             />
           </View>
-          <View style={styles.fieldHalf}>
+          <View style={styles.fieldThird}>
             <Input
-              label="Pack Size"
-              value={String(item.packSize)}
-              onChangeText={(v) => updateRow(item.key, 'packSize', Math.max(1, parseInt(v) || 1))}
+              label="Strips/Box"
+              value={String(item.stripsPerBox)}
+              onChangeText={(v) => updateRow(item.key, 'stripsPerBox', Math.max(1, parseInt(v) || 1))}
+              keyboardType="numeric"
+              placeholder="1"
+            />
+          </View>
+          <View style={styles.fieldThird}>
+            <Input
+              label="Tabs/Strip"
+              value={String(item.tabletsPerStrip)}
+              onChangeText={(v) => updateRow(item.key, 'tabletsPerStrip', Math.max(1, parseInt(v) || 1))}
               keyboardType="numeric"
               placeholder="1"
             />
           </View>
         </View>
 
+        <Text style={styles.totalUnitsText}>
+          Total units: {totalUnits}
+          {perUnit ? `  •  Rs ${perUnit}/unit` : ''}
+        </Text>
+
+        {/* Batch & Expiry */}
         <View style={styles.fieldRow}>
           <View style={styles.fieldHalf}>
             <Input
-              label="Batch No."
+              label="Batch"
               value={item.batchNo}
               onChangeText={(v) => updateRow(item.key, 'batchNo', v)}
               placeholder="Batch"
@@ -294,10 +360,19 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               label="Expiry"
               value={item.expiry}
               onChangeText={(v) => updateRow(item.key, 'expiry', v)}
-              placeholder="YYYY-MM-DD"
+              placeholder="MM/YYYY"
             />
           </View>
         </View>
+
+        {/* Low Stock */}
+        <Input
+          label="Low Stock Alert"
+          value={item.reorderLevel ? String(item.reorderLevel) : ''}
+          onChangeText={(v) => updateRow(item.key, 'reorderLevel', Math.max(0, parseInt(v) || 0))}
+          keyboardType="numeric"
+          placeholder="Alert when stock falls below..."
+        />
       </View>
     );
   }
@@ -324,19 +399,6 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               Take a photo or pick an image of a supplier invoice, purchase bill, or stock sheet.
               AI will extract all products automatically.
             </Text>
-
-            <View style={styles.packSizeRow}>
-              <Text style={styles.packSizeLabel}>Default tablets per strip</Text>
-              <View style={styles.packSizeInputWrap}>
-                <Input
-                  value={defaultPackSize}
-                  onChangeText={setDefaultPackSize}
-                  keyboardType="numeric"
-                  placeholder="10"
-                  style={styles.packSizeInput}
-                />
-              </View>
-            </View>
 
             <Button
               title="Take Photo"
@@ -376,6 +438,16 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               <Pressable onPress={() => { reset(); setStep('capture'); }}>
                 <Text style={styles.rescanText}>Re-scan</Text>
               </Pressable>
+            </View>
+
+            {/* Shared dealer name */}
+            <View style={styles.dealerRow}>
+              <Input
+                label="Dealer Name"
+                value={dealerName}
+                onChangeText={setDealerName}
+                placeholder="Dealer name (applies to all products)"
+              />
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -455,7 +527,6 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 
-  // Capture step
   captureContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -480,35 +551,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: spacing.lg,
   },
-  packSizeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.lg,
-    backgroundColor: colors.white,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  packSizeLabel: {
-    fontFamily: font.medium,
-    fontSize: 14,
-    color: colors.text,
-    flex: 1,
-  },
-  packSizeInputWrap: {
-    width: 70,
-  },
-  packSizeInput: {
-    textAlign: 'center',
-    marginBottom: 0,
-  },
   captureBtn: {
     marginBottom: spacing.sm,
   },
 
-  // Processing step
   processingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -523,7 +569,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Review step
   reviewContainer: {
     flex: 1,
   },
@@ -544,12 +589,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primary[600],
   },
+  dealerRow: {
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
   listContent: {
     paddingHorizontal: spacing.md,
     paddingBottom: 100,
   },
 
-  // Product card
   card: {
     backgroundColor: colors.white,
     borderRadius: radius.lg,
@@ -565,11 +613,22 @@ const styles = StyleSheet.create({
     zIndex: 1,
     padding: 4,
   },
+  sectionLabel: {
+    fontFamily: font.semiBold,
+    fontSize: 11,
+    color: colors.textMuted,
+    letterSpacing: 1,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
   fieldRow: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
   fieldHalf: {
+    flex: 1,
+  },
+  fieldThird: {
     flex: 1,
   },
   marginText: {
@@ -583,7 +642,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     overflow: 'hidden',
   },
-  perUnitText: {
+  totalUnitsText: {
     fontFamily: font.medium,
     fontSize: 13,
     color: colors.primary[700],
@@ -591,7 +650,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: 8,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     overflow: 'hidden',
   },
   addRowBtn: {
@@ -608,7 +667,6 @@ const styles = StyleSheet.create({
     color: colors.primary[600],
   },
 
-  // Bottom bar
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -620,7 +678,6 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
 
-  // Done
   doneTitle: {
     fontFamily: font.bold,
     fontSize: 22,
@@ -639,7 +696,6 @@ const styles = StyleSheet.create({
     minWidth: 160,
   },
 
-  // Error
   errorText: {
     fontFamily: font.regular,
     fontSize: 13,

@@ -84,13 +84,25 @@ router.get('/movements/product/:productId', async (req, res) => {
 
 router.post('/stock-in', async (req, res) => {
   try {
-    const { productId, quantity, date, notes, referenceLabel, costPrice } = req.body as {
+    const {
+      productId, quantity, date, notes, referenceLabel, costPrice,
+      dealerName, batchNo, expiryDate, mrp, sellingPrice,
+      numBoxes, stripsPerBox, tabletsPerStrip,
+    } = req.body as {
       productId: string;
       quantity: number;
       date?: string;
       notes?: string;
       referenceLabel?: string;
       costPrice?: number;
+      dealerName?: string;
+      batchNo?: string;
+      expiryDate?: string;
+      mrp?: number;
+      sellingPrice?: number;
+      numBoxes?: number;
+      stripsPerBox?: number;
+      tabletsPerStrip?: number;
     };
     if (!productId || quantity == null) {
       return res.status(400).json({ error: 'productId and quantity are required' });
@@ -108,12 +120,69 @@ router.post('/stock-in', async (req, res) => {
       notes: notes ?? '',
       user: getUser(req as { user?: AuthPayload }),
       costPrice: parsedCost,
+      dealerName: dealerName ?? '',
+      batchNo: batchNo ?? '',
+      expiryDate: expiryDate ?? null,
+      mrp: mrp != null ? Number(mrp) : undefined,
+      sellingPrice: sellingPrice != null ? Number(sellingPrice) : undefined,
+      numBoxes: numBoxes != null ? Number(numBoxes) : undefined,
+      stripsPerBox: stripsPerBox != null ? Number(stripsPerBox) : undefined,
+      tabletsPerStrip: tabletsPerStrip != null ? Number(tabletsPerStrip) : undefined,
     });
     res.status(201).json(result);
   } catch (e) {
     if (e instanceof InsufficientStockError) {
       return res.status(400).json({ error: e.message });
     }
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+router.put('/movements/:id', async (req, res) => {
+  try {
+    if (!UUID_RE.test(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid movement id' });
+    }
+    const db = getTenantDb(req);
+    const existing = await db.getMovement(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Movement not found' });
+    if (existing.type !== 'STOCK_IN') {
+      return res.status(400).json({ error: 'Only STOCK_IN movements can be edited' });
+    }
+
+    const {
+      quantity, dealerName, batchNo, expiryDate, costPrice, mrp, sellingPrice,
+      numBoxes, stripsPerBox, tabletsPerStrip, notes,
+    } = req.body as {
+      quantity?: number;
+      dealerName?: string;
+      batchNo?: string;
+      expiryDate?: string | null;
+      costPrice?: number | null;
+      mrp?: number | null;
+      sellingPrice?: number | null;
+      numBoxes?: number;
+      stripsPerBox?: number;
+      tabletsPerStrip?: number;
+      notes?: string;
+    };
+
+    // If quantity changed, adjust the product's quantity_on_hand
+    if (quantity !== undefined && quantity !== existing.quantity) {
+      const diff = quantity - existing.quantity;
+      const product = await db.getProduct(existing.productId);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      const newQty = (product.quantityOnHand ?? 0) + diff;
+      if (newQty < 0) return res.status(400).json({ error: 'Quantity change would result in negative stock' });
+      await db.updateProductQuantity(existing.productId, diff, 0);
+    }
+
+    const updated = await db.updateMovement(req.params.id, {
+      quantity, dealerName, batchNo, expiryDate, costPrice, mrp, sellingPrice,
+      numBoxes, stripsPerBox, tabletsPerStrip, notes,
+    });
+    res.json(updated);
+  } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
 });
