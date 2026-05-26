@@ -104,6 +104,7 @@ export default function ProductsScreen() {
   // Movement history
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [movementsLoading, setMovementsLoading] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'in' | 'out'>('all');
 
   // Movement detail / edit
   const [selectedMovement, setSelectedMovement] = useState<StockMovement | null>(null);
@@ -127,6 +128,18 @@ export default function ProductsScreen() {
   const emTotalUnits = useMemo(() => {
     return Math.max(1, parseInt(emBoxes) || 1) * Math.max(1, parseInt(emStrips) || 1) * Math.max(1, parseInt(emTabs) || 1);
   }, [emBoxes, emStrips, emTabs]);
+
+  const filteredMovements = useMemo(() => {
+    if (historyFilter === 'all') return movements;
+    if (historyFilter === 'in') return movements.filter((m) => m.type === 'STOCK_IN' || m.type === 'OPENING' || m.type === 'RETURN_IN');
+    return movements.filter((m) => m.type === 'SALE' || m.type === 'ADJUSTMENT');
+  }, [movements, historyFilter]);
+
+  const latestStockIn = useMemo(() => {
+    const stockIns = movements.filter((m) => m.type === 'STOCK_IN' || m.type === 'OPENING');
+    if (stockIns.length === 0) return null;
+    return stockIns.reduce((latest, m) => new Date(m.date) > new Date(latest.date) ? m : latest, stockIns[0]);
+  }, [movements]);
 
   const categorySuggestions = useMemo(
     () =>
@@ -183,6 +196,7 @@ export default function ProductsScreen() {
     setStockFormOpen(false);
     setSelectedMovement(null);
     setEditingMovement(false);
+    setHistoryFilter('all');
     prefillStockForm(p);
     setMovements([]);
     loadMovements(p.id);
@@ -453,27 +467,38 @@ export default function ProductsScreen() {
               {/* Details */}
               <View style={st.sec}>
                 <Text style={st.secTitle}>DETAILS</Text>
-                {selected.batchNo ? <DetailRow label="Batch" value={selected.batchNo} /> : null}
-                {selected.expiryDate ? (
-                  <DetailRow
-                    label="Expiry"
-                    value={formatExpiry(selected.expiryDate)}
-                    valueColor={isExpired(selected.expiryDate) ? colors.danger : isExpiringSoon(selected.expiryDate) ? AMBER : undefined}
-                  />
-                ) : null}
-                {selected.dealerName ? <DetailRow label="Dealer" value={selected.dealerName} /> : null}
+                {(latestStockIn?.batchNo || selected.batchNo) ? <DetailRow label="Batch" value={latestStockIn?.batchNo || selected.batchNo || ''} /> : null}
+                {(() => {
+                  const expiry = latestStockIn?.expiryDate || selected.expiryDate;
+                  if (!expiry) return null;
+                  return (
+                    <DetailRow
+                      label="Expiry"
+                      value={formatExpiry(expiry)}
+                      valueColor={isExpired(expiry) ? colors.danger : isExpiringSoon(expiry) ? AMBER : undefined}
+                    />
+                  );
+                })()}
+                {(latestStockIn?.dealerName || selected.dealerName) ? <DetailRow label="Dealer" value={latestStockIn?.dealerName || selected.dealerName || ''} /> : null}
                 <DetailRow label="Barcode" value={selected.barcode} />
               </View>
 
               {/* History */}
               <View style={st.sec}>
                 <Text style={st.secTitle}>HISTORY</Text>
+                <View style={st.histFilter}>
+                  {([['all', 'All'], ['in', 'Stock In'], ['out', 'Stock Out']] as const).map(([key, label]) => (
+                    <Pressable key={key} onPress={() => setHistoryFilter(key)} style={[st.histFilterPill, historyFilter === key && st.histFilterPillActive]}>
+                      <Text style={[st.histFilterText, historyFilter === key && st.histFilterTextActive]}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
                 {movementsLoading ? (
                   <ActivityIndicator size="small" color={colors.primary[600]} style={{ paddingVertical: spacing.md }} />
-                ) : movements.length === 0 ? (
-                  <Text style={st.noHistory}>No movement history</Text>
+                ) : filteredMovements.length === 0 ? (
+                  <Text style={st.noHistory}>No {historyFilter === 'all' ? '' : historyFilter === 'in' ? 'stock in ' : 'stock out '}history</Text>
                 ) : (
-                  movements.slice(0, 50).map((m) => {
+                  filteredMovements.slice(0, 50).map((m) => {
                     const meta = MOVEMENT_META[m.type] ?? { label: m.type, icon: 'ellipse-outline', color: colors.textMuted };
                     const dateStr = m.date ? new Date(m.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '';
                     return (
@@ -486,7 +511,7 @@ export default function ProductsScreen() {
                           </View>
                           <View style={st.histRight}>
                             <Text style={[st.histQty, { color: meta.color }]}>
-                              {m.type === 'SALE' ? '-' : '+'}{m.quantity}
+                              {m.type === 'SALE' || m.type === 'ADJUSTMENT' ? '-' : '+'}{m.quantity}
                             </Text>
                             <Text style={st.histBal}>Bal: {m.balanceAfter}</Text>
                           </View>
@@ -519,7 +544,7 @@ export default function ProductsScreen() {
                   </Text>
                 </View>
                 <View style={st.movementHeaderRight}>
-                  {selectedMovement.type === 'STOCK_IN' && !editingMovement ? (
+                  {(selectedMovement.type === 'STOCK_IN' || selectedMovement.type === 'OPENING') && !editingMovement ? (
                     <Pressable style={st.editBtn} onPress={() => setEditingMovement(true)} hitSlop={8}>
                       <Ionicons name="create-outline" size={18} color={colors.primary[600]} />
                     </Pressable>
@@ -597,8 +622,8 @@ export default function ProductsScreen() {
                     ) : null}
                   </View>
 
-                  {/* Pricing - only for STOCK_IN */}
-                  {selectedMovement.type === 'STOCK_IN' && ((selectedMovement.sellingPrice ?? 0) > 0 || (selectedMovement.mrp ?? 0) > 0 || (selectedMovement.costPrice ?? 0) > 0) ? (
+                  {/* Pricing */}
+                  {(selectedMovement.type === 'STOCK_IN' || selectedMovement.type === 'OPENING') && ((selectedMovement.sellingPrice ?? 0) > 0 || (selectedMovement.mrp ?? 0) > 0 || (selectedMovement.costPrice ?? 0) > 0) ? (
                     <View style={st.sec}>
                       <Text style={st.secTitle}>PRICING</Text>
                       <View style={st.priceGrid}>
@@ -758,6 +783,11 @@ const st = StyleSheet.create({
   detailValue: { flex: 1, fontFamily: font.regular, fontSize: 14, color: colors.text, textAlign: 'right' },
 
   // History
+  histFilter: { flexDirection: 'row', backgroundColor: colors.surface[100], borderRadius: 8, padding: 2, marginBottom: spacing.sm },
+  histFilterPill: { flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 6 },
+  histFilterPillActive: { backgroundColor: colors.primary[600] },
+  histFilterText: { fontFamily: font.semiBold, fontSize: 12, color: colors.textMuted },
+  histFilterTextActive: { color: colors.white },
   noHistory: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.md },
   histRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   histIcon: { marginRight: 10, width: 20 },

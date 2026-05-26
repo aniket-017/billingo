@@ -146,8 +146,8 @@ router.put('/movements/:id', async (req, res) => {
     const db = getTenantDb(req);
     const existing = await db.getMovement(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Movement not found' });
-    if (existing.type !== 'STOCK_IN') {
-      return res.status(400).json({ error: 'Only STOCK_IN movements can be edited' });
+    if (existing.type !== 'STOCK_IN' && existing.type !== 'OPENING') {
+      return res.status(400).json({ error: 'Only STOCK_IN and OPENING movements can be edited' });
     }
 
     const {
