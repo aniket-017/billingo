@@ -11,8 +11,6 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/src/api/client';
-import Card from '@/src/components/Card';
-import Screen from '@/src/components/Screen';
 import { colors, font, radius, shadows, spacing } from '@/src/theme';
 import { formatCurrency } from '@/src/utils/format';
 
@@ -20,18 +18,27 @@ type Period = '7d' | '30d' | '90d' | 'all';
 type DayData = { day: string; revenue: number; profit: number; count: number };
 type TopProduct = { productId: string; productName: string; totalQty: number; totalRevenue: number; orderCount: number };
 
-function periodDates(period: Period): { from?: string; to?: string } {
-  if (period === 'all') return {};
+const PURPLE = '#8b5cf6';
+const AMBER = '#f59e0b';
+const BAR_H = 110;
+
+function periodDates(p: Period): { from?: string; to?: string } {
+  if (p === 'all') return {};
   const now = new Date();
   const to = now.toISOString().slice(0, 10);
-  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-  const from = new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10);
-  return { from, to };
+  const days = p === '7d' ? 7 : p === '30d' ? 30 : 90;
+  return { from: new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10), to };
 }
 
-function shortDay(isoDay: string): string {
-  const d = new Date(isoDay);
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+function shortDay(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getDate()} ${d.toLocaleDateString('en-IN', { month: 'short' })}`;
+}
+
+function compactNum(n: number): string {
+  if (n >= 100000) return `${(n / 100000).toFixed(1)}L`;
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(Math.round(n));
 }
 
 export default function ReportsScreen() {
@@ -46,13 +53,13 @@ export default function ReportsScreen() {
     setLoading(true);
     try {
       const { from, to } = periodDates(period);
-      const [salesData, topData] = await Promise.all([
+      const [sales, top] = await Promise.all([
         api.reports.sales(from, to),
         api.reports.topProducts(from, to, 10),
       ]);
-      setSummary(salesData.summary);
-      setByDay(salesData.byDay);
-      setTopProducts(topData);
+      setSummary(sales.summary);
+      setByDay(sales.byDay);
+      setTopProducts(top);
     } catch {
       setSummary({ totalSales: 0, count: 0, revenue: 0, cogs: 0, profit: 0 });
       setByDay([]);
@@ -62,218 +69,245 @@ export default function ReportsScreen() {
     }
   }, [period]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const maxRevenue = useMemo(() => Math.max(...byDay.map((d) => d.revenue), 1), [byDay]);
-  const maxProfit = useMemo(() => Math.max(...byDay.map((d) => Math.abs(d.profit)), 1), [byDay]);
-  const topMaxQty = useMemo(() => Math.max(...topProducts.map((p) => p.totalQty), 1), [topProducts]);
+  const maxRev = useMemo(() => Math.max(...byDay.map((d) => d.revenue), 1), [byDay]);
+  const maxProf = useMemo(() => Math.max(...byDay.map((d) => Math.abs(d.profit)), 1), [byDay]);
+  const topMax = useMemo(() => Math.max(...topProducts.map((p) => p.totalQty), 1), [topProducts]);
 
-  // Limit chart bars to last N days for readability
-  const chartData = useMemo(() => {
-    if (byDay.length <= 15) return byDay;
-    return byDay.slice(-15);
+  const chartDays = useMemo(() => {
+    const max = 10;
+    return byDay.length <= max ? byDay : byDay.slice(-max);
   }, [byDay]);
 
+  const marginPct = summary.revenue > 0 ? ((summary.profit / summary.revenue) * 100).toFixed(1) : '0';
+
   return (
-    <View style={[st.root, { paddingTop: insets.top }]}>
+    <View style={[s.root, { paddingTop: insets.top }]}>
       {/* Header */}
-      <View style={st.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={st.backBtn}>
+      <View style={s.header}>
+        <Pressable onPress={() => router.back()} hitSlop={12} style={s.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.text} />
         </Pressable>
-        <Text style={st.headerTitle}>Reports</Text>
+        <Text style={s.headerTitle}>Reports</Text>
         <View style={{ width: 34 }} />
       </View>
 
-      {/* Period Tabs */}
-      <View style={st.periodRow}>
+      {/* Period pills */}
+      <View style={s.pillRow}>
         {(['7d', '30d', '90d', 'all'] as Period[]).map((p) => (
-          <Pressable key={p} onPress={() => setPeriod(p)} style={[st.periodTab, period === p && st.periodTabActive]}>
-            <Text style={[st.periodText, period === p && st.periodTextActive]}>
-              {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : p === '90d' ? '90 Days' : 'All Time'}
+          <Pressable key={p} onPress={() => setPeriod(p)} style={[s.pill, period === p && s.pillActive]}>
+            <Text style={[s.pillText, period === p && s.pillTextActive]}>
+              {p === '7d' ? '7D' : p === '30d' ? '30D' : p === '90d' ? '90D' : 'All'}
             </Text>
           </Pressable>
         ))}
       </View>
 
       {loading ? (
-        <View style={st.loadingWrap}>
-          <ActivityIndicator size="large" color={colors.primary[600]} />
-        </View>
+        <View style={s.loadWrap}><ActivityIndicator size="large" color={colors.primary[600]} /></View>
       ) : (
-        <ScrollView contentContainerStyle={st.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Summary Cards */}
-          <View style={st.summaryGrid}>
-            <SummaryCard icon="cash-outline" label="Revenue" value={formatCurrency(summary.revenue)} color={colors.primary[600]} />
-            <SummaryCard icon="trending-up-outline" label="Profit" value={formatCurrency(summary.profit)} color={colors.success} />
-            <SummaryCard icon="receipt-outline" label="Invoices" value={String(summary.count)} color="#8b5cf6" />
-            <SummaryCard icon="pricetag-outline" label="COGS" value={formatCurrency(summary.cogs)} color={AMBER} />
+        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+
+          {/* KPI Row */}
+          <View style={s.kpiRow}>
+            <KpiCard label="Revenue" value={formatCurrency(summary.revenue)} sub={`${summary.count} sales`} color={colors.primary[600]} icon="wallet-outline" />
+            <KpiCard label="Profit" value={formatCurrency(summary.profit)} sub={`${marginPct}% margin`} color={colors.success} icon="trending-up-outline" />
+          </View>
+          <View style={s.kpiRow}>
+            <KpiCard label="Invoices" value={String(summary.count)} color={PURPLE} icon="receipt-outline" />
+            <KpiCard label="COGS" value={formatCurrency(summary.cogs)} color={AMBER} icon="cube-outline" />
           </View>
 
           {/* Revenue Chart */}
-          {chartData.length > 0 ? (
-            <Card style={st.chartCard}>
-              <Text style={st.chartTitle}>Revenue Trend</Text>
-              <View style={st.chart}>
-                {chartData.map((d, i) => {
-                  const h = Math.max(4, (d.revenue / maxRevenue) * MAX_BAR_H);
+          {chartDays.length > 0 ? (
+            <View style={s.card}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle}>Revenue</Text>
+                <Text style={s.cardSub}>{compactNum(summary.revenue)} total</Text>
+              </View>
+              <View style={s.chartWrap}>
+                {chartDays.map((d) => {
+                  const pct = d.revenue / maxRev;
                   return (
-                    <View key={d.day} style={st.barCol}>
-                      <Text style={st.barValue}>{d.revenue >= 1000 ? `${(d.revenue / 1000).toFixed(0)}k` : String(Math.round(d.revenue))}</Text>
-                      <View style={[st.bar, { height: h, backgroundColor: colors.primary[500] }]} />
-                      <Text style={st.barLabel}>{shortDay(d.day)}</Text>
+                    <View key={d.day} style={s.barCol}>
+                      <Text style={s.barTip}>{compactNum(d.revenue)}</Text>
+                      <View style={s.barTrack}>
+                        <View style={[s.barFill, { height: `${Math.max(3, pct * 100)}%`, backgroundColor: colors.primary[500] }]} />
+                      </View>
+                      <Text style={s.barDay}>{new Date(d.day).getDate()}</Text>
                     </View>
                   );
                 })}
               </View>
-            </Card>
+              <View style={s.chartLegend}>
+                <Text style={s.chartLegendText}>{shortDay(chartDays[0].day)} — {shortDay(chartDays[chartDays.length - 1].day)}</Text>
+              </View>
+            </View>
           ) : null}
 
           {/* Profit Chart */}
-          {chartData.length > 0 ? (
-            <Card style={st.chartCard}>
-              <Text style={st.chartTitle}>Profit Trend</Text>
-              <View style={st.chart}>
-                {chartData.map((d) => {
-                  const h = Math.max(4, (Math.abs(d.profit) / maxProfit) * MAX_BAR_H);
+          {chartDays.length > 0 ? (
+            <View style={s.card}>
+              <View style={s.cardHeader}>
+                <Text style={s.cardTitle}>Profit</Text>
+                <Text style={[s.cardSub, { color: summary.profit >= 0 ? colors.success : colors.danger }]}>{compactNum(summary.profit)} total</Text>
+              </View>
+              <View style={s.chartWrap}>
+                {chartDays.map((d) => {
+                  const pct = Math.abs(d.profit) / maxProf;
                   return (
-                    <View key={d.day} style={st.barCol}>
-                      <Text style={st.barValue}>{d.profit >= 1000 ? `${(d.profit / 1000).toFixed(0)}k` : String(Math.round(d.profit))}</Text>
-                      <View style={[st.bar, { height: h, backgroundColor: d.profit >= 0 ? colors.success : colors.danger }]} />
-                      <Text style={st.barLabel}>{shortDay(d.day)}</Text>
+                    <View key={d.day} style={s.barCol}>
+                      <Text style={s.barTip}>{compactNum(d.profit)}</Text>
+                      <View style={s.barTrack}>
+                        <View style={[s.barFill, { height: `${Math.max(3, pct * 100)}%`, backgroundColor: d.profit >= 0 ? colors.success : colors.danger }]} />
+                      </View>
+                      <Text style={s.barDay}>{new Date(d.day).getDate()}</Text>
                     </View>
                   );
                 })}
               </View>
-            </Card>
+              <View style={s.chartLegend}>
+                <Text style={s.chartLegendText}>{shortDay(chartDays[0].day)} — {shortDay(chartDays[chartDays.length - 1].day)}</Text>
+              </View>
+            </View>
           ) : null}
 
-          {/* Top Selling Products */}
-          <Card style={st.chartCard}>
-            <Text style={st.chartTitle}>Top Selling Products</Text>
+          {/* Top Selling */}
+          <View style={s.card}>
+            <View style={s.cardHeader}>
+              <Text style={s.cardTitle}>Top Sellers</Text>
+              <Ionicons name="trophy-outline" size={16} color={AMBER} />
+            </View>
             {topProducts.length === 0 ? (
-              <Text style={st.noData}>No sales data</Text>
+              <Text style={s.empty}>No sales data for this period</Text>
             ) : (
               topProducts.map((p, i) => {
-                const barW = Math.max(8, (p.totalQty / topMaxQty) * 100);
+                const pct = (p.totalQty / topMax) * 100;
+                const medal = i === 0 ? AMBER : i === 1 ? '#94a3b8' : i === 2 ? '#b87333' : undefined;
                 return (
-                  <View key={p.productId} style={st.topRow}>
-                    <Text style={st.topRank}>{i + 1}</Text>
-                    <View style={st.topInfo}>
-                      <Text style={st.topName} numberOfLines={1}>{p.productName}</Text>
-                      <View style={st.topBarTrack}>
-                        <View style={[st.topBar, { width: `${barW}%` }]} />
-                      </View>
+                  <View key={p.productId} style={s.topRow}>
+                    <View style={[s.topRankCircle, medal ? { backgroundColor: medal + '20' } : undefined]}>
+                      <Text style={[s.topRankNum, medal ? { color: medal } : undefined]}>{i + 1}</Text>
                     </View>
-                    <View style={st.topRight}>
-                      <Text style={st.topQty}>{p.totalQty} sold</Text>
-                      <Text style={st.topRev}>{formatCurrency(p.totalRevenue)}</Text>
+                    <View style={s.topBody}>
+                      <View style={s.topNameRow}>
+                        <Text style={s.topName} numberOfLines={1}>{p.productName}</Text>
+                        <Text style={s.topQty}>{p.totalQty}</Text>
+                      </View>
+                      <View style={s.topTrack}>
+                        <View style={[s.topFill, { width: `${Math.max(4, pct)}%` }, i === 0 && { backgroundColor: AMBER }]} />
+                      </View>
+                      <Text style={s.topRev}>{formatCurrency(p.totalRevenue)} revenue</Text>
                     </View>
                   </View>
                 );
               })
             )}
-          </Card>
+          </View>
 
-          {/* Sales by Day Table */}
+          {/* Daily Table */}
           {byDay.length > 0 ? (
-            <Card style={st.chartCard}>
-              <Text style={st.chartTitle}>Daily Breakdown</Text>
-              <View style={st.tableHeader}>
-                <Text style={[st.tableCell, st.tableCellDate]}>Date</Text>
-                <Text style={[st.tableCell, st.tableCellNum]}>Sales</Text>
-                <Text style={[st.tableCell, st.tableCellNum]}>Revenue</Text>
-                <Text style={[st.tableCell, st.tableCellNum]}>Profit</Text>
+            <View style={s.card}>
+              <Text style={s.cardTitle}>Daily Breakdown</Text>
+              <View style={[s.tRow, s.tHead]}>
+                <Text style={[s.tCell, s.tCellDate, s.tHeadText]}>Date</Text>
+                <Text style={[s.tCell, s.tCellNum, s.tHeadText]}>Sales</Text>
+                <Text style={[s.tCell, s.tCellNum, s.tHeadText]}>Revenue</Text>
+                <Text style={[s.tCell, s.tCellNum, s.tHeadText]}>Profit</Text>
               </View>
-              {byDay.slice().reverse().slice(0, 30).map((d) => (
-                <View key={d.day} style={st.tableRow}>
-                  <Text style={[st.tableCell, st.tableCellDate]}>{shortDay(d.day)}</Text>
-                  <Text style={[st.tableCell, st.tableCellNum]}>{d.count}</Text>
-                  <Text style={[st.tableCell, st.tableCellNum]}>{formatCurrency(d.revenue)}</Text>
-                  <Text style={[st.tableCell, st.tableCellNum, { color: d.profit >= 0 ? colors.success : colors.danger }]}>{formatCurrency(d.profit)}</Text>
+              {byDay.slice().reverse().slice(0, 30).map((d, i) => (
+                <View key={d.day} style={[s.tRow, i % 2 === 0 && s.tRowAlt]}>
+                  <Text style={[s.tCell, s.tCellDate]}>{shortDay(d.day)}</Text>
+                  <Text style={[s.tCell, s.tCellNum]}>{d.count}</Text>
+                  <Text style={[s.tCell, s.tCellNum]}>{compactNum(d.revenue)}</Text>
+                  <Text style={[s.tCell, s.tCellNum, { color: d.profit >= 0 ? colors.success : colors.danger }]}>{compactNum(d.profit)}</Text>
                 </View>
               ))}
-            </Card>
+            </View>
           ) : null}
 
-          <View style={{ height: spacing.xl }} />
+          <View style={{ height: spacing.xl * 2 }} />
         </ScrollView>
       )}
     </View>
   );
 }
 
-const AMBER = '#f59e0b';
-
-function SummaryCard({ icon, label, value, color }: { icon: string; label: string; value: string; color: string }) {
+function KpiCard({ label, value, sub, color, icon }: { label: string; value: string; sub?: string; color: string; icon: string }) {
   return (
-    <View style={[st.summaryCard, { borderLeftColor: color }]}>
-      <View style={st.summaryIconRow}>
-        <View style={[st.summaryIcon, { backgroundColor: color + '15' }]}>
-          <Ionicons name={icon as any} size={18} color={color} />
-        </View>
+    <View style={s.kpiCard}>
+      <View style={[s.kpiIcon, { backgroundColor: color + '12' }]}>
+        <Ionicons name={icon as any} size={18} color={color} />
       </View>
-      <Text style={st.summaryValue}>{value}</Text>
-      <Text style={st.summaryLabel}>{label}</Text>
+      <Text style={s.kpiValue}>{value}</Text>
+      <Text style={s.kpiLabel}>{label}</Text>
+      {sub ? <Text style={s.kpiSub}>{sub}</Text> : null}
     </View>
   );
 }
 
-const MAX_BAR_H = 100;
-
-const st = StyleSheet.create({
+const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface[50] },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 10 },
   backBtn: { padding: 6 },
   headerTitle: { fontFamily: font.bold, fontSize: 20, color: colors.text },
 
-  periodRow: { flexDirection: 'row', paddingHorizontal: spacing.md, gap: spacing.xs, marginBottom: spacing.md },
-  periodTab: { flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.surface[100], alignItems: 'center' },
-  periodTabActive: { backgroundColor: colors.primary[600] },
-  periodText: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
-  periodTextActive: { color: colors.white },
+  pillRow: { flexDirection: 'row', marginHorizontal: spacing.md, backgroundColor: colors.surface[100], borderRadius: 10, padding: 3, marginBottom: spacing.md },
+  pill: { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center' },
+  pillActive: { backgroundColor: colors.primary[600], ...shadows.card },
+  pillText: { fontFamily: font.semiBold, fontSize: 13, color: colors.textMuted },
+  pillTextActive: { color: colors.white },
 
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scrollContent: { paddingHorizontal: spacing.md },
+  loadWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  scroll: { paddingHorizontal: spacing.md },
 
-  // Summary
-  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
-  summaryCard: {
-    backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md,
-    borderLeftWidth: 4, width: '48%', flexGrow: 1, ...shadows.card,
+  // KPI
+  kpiRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  kpiCard: {
+    flex: 1, backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md, ...shadows.card,
   },
-  summaryIconRow: { marginBottom: spacing.xs },
-  summaryIcon: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  summaryValue: { fontFamily: font.bold, fontSize: 18, color: colors.text, marginBottom: 2 },
-  summaryLabel: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  kpiIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
+  kpiValue: { fontFamily: font.bold, fontSize: 20, color: colors.text },
+  kpiLabel: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  kpiSub: { fontFamily: font.regular, fontSize: 11, color: colors.surface[300], marginTop: 2 },
 
-  // Chart
-  chartCard: { marginBottom: spacing.sm },
-  chartTitle: { fontFamily: font.semiBold, fontSize: 14, color: colors.text, marginBottom: spacing.md },
-  chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: MAX_BAR_H + 40 },
-  barCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  bar: { width: '80%', borderRadius: 4, minWidth: 6 },
-  barValue: { fontFamily: font.medium, fontSize: 8, color: colors.textMuted, marginBottom: 2 },
-  barLabel: { fontFamily: font.regular, fontSize: 7, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
-  noData: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.md },
+  // Card
+  card: { backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, ...shadows.card },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  cardTitle: { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
+  cardSub: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  empty: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.lg },
 
-  // Top Products
-  topRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
-  topRank: { fontFamily: font.bold, fontSize: 14, color: colors.primary[600], width: 24, textAlign: 'center' },
-  topInfo: { flex: 1, marginHorizontal: spacing.sm },
-  topName: { fontFamily: font.medium, fontSize: 13, color: colors.text, marginBottom: 4 },
-  topBarTrack: { height: 6, backgroundColor: colors.surface[100], borderRadius: 3 },
-  topBar: { height: 6, backgroundColor: colors.primary[500], borderRadius: 3 },
-  topRight: { alignItems: 'flex-end' },
-  topQty: { fontFamily: font.semiBold, fontSize: 12, color: colors.text },
+  // Bar chart
+  chartWrap: { flexDirection: 'row', alignItems: 'flex-end', height: BAR_H + 30, gap: 3 },
+  barCol: { flex: 1, alignItems: 'center', height: BAR_H + 30, justifyContent: 'flex-end' },
+  barTip: { fontFamily: font.medium, fontSize: 8, color: colors.textMuted, marginBottom: 3 },
+  barTrack: { width: '65%', maxWidth: 22, height: BAR_H, borderRadius: 6, backgroundColor: colors.surface[50], justifyContent: 'flex-end', overflow: 'hidden' },
+  barFill: { width: '100%', borderRadius: 6 },
+  barDay: { fontFamily: font.medium, fontSize: 9, color: colors.textMuted, marginTop: 4 },
+  chartLegend: { alignItems: 'center', marginTop: spacing.sm },
+  chartLegendText: { fontFamily: font.regular, fontSize: 10, color: colors.surface[300] },
+
+  // Top sellers
+  topRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.surface[100] },
+  topRankCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.surface[100], alignItems: 'center', justifyContent: 'center', marginRight: 10, marginTop: 2 },
+  topRankNum: { fontFamily: font.bold, fontSize: 12, color: colors.textMuted },
+  topBody: { flex: 1 },
+  topNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  topName: { fontFamily: font.medium, fontSize: 13, color: colors.text, flex: 1, marginRight: spacing.sm },
+  topQty: { fontFamily: font.bold, fontSize: 13, color: colors.primary[700] },
+  topTrack: { height: 5, backgroundColor: colors.surface[100], borderRadius: 3, marginBottom: 4 },
+  topFill: { height: 5, backgroundColor: colors.primary[500], borderRadius: 3 },
   topRev: { fontFamily: font.regular, fontSize: 11, color: colors.textMuted },
 
   // Table
-  tableHeader: { flexDirection: 'row', borderBottomWidth: 2, borderBottomColor: colors.surface[200], paddingBottom: 6, marginBottom: 4 },
-  tableRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
-  tableCell: { fontFamily: font.regular, fontSize: 12, color: colors.text },
-  tableCellDate: { flex: 1.2 },
-  tableCellNum: { flex: 1, textAlign: 'right' },
+  tRow: { flexDirection: 'row', paddingVertical: 7, paddingHorizontal: 4 },
+  tRowAlt: { backgroundColor: colors.surface[50], borderRadius: 6 },
+  tHead: { borderBottomWidth: 0, marginBottom: 2 },
+  tHeadText: { fontFamily: font.semiBold, color: colors.textMuted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 },
+  tCell: { fontFamily: font.regular, fontSize: 12, color: colors.text },
+  tCellDate: { flex: 1.3 },
+  tCellNum: { flex: 1, textAlign: 'right' },
 });

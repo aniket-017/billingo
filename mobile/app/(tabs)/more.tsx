@@ -7,7 +7,6 @@ import Button from '@/src/components/Button';
 import Card from '@/src/components/Card';
 import Input from '@/src/components/Input';
 import Screen from '@/src/components/Screen';
-import StatCard from '@/src/components/StatCard';
 import Toast from '@/src/components/Toast';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useBusinessSettings } from '@/src/contexts/BusinessSettingsContext';
@@ -16,12 +15,19 @@ import { formatCurrency, todayIsoDate } from '@/src/utils/format';
 
 type MenuItem = { icon: string; label: string; onPress: () => void; color?: string };
 
+type Stats = { revenue: number; profit: number; count: number };
+const EMPTY: Stats = { revenue: 0, profit: 0, count: 0 };
+
+function monthStartIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 export default function MoreScreen() {
   const { logout } = useAuth();
   const { settings, update } = useBusinessSettings();
-  const [todayRevenue, setTodayRevenue] = useState('—');
-  const [todayCount, setTodayCount] = useState('—');
-  const [todayProfit, setTodayProfit] = useState('—');
+  const [today, setToday] = useState<Stats>(EMPTY);
+  const [month, setMonth] = useState<Stats>(EMPTY);
 
   const [form, setForm] = useState(settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -32,23 +38,25 @@ export default function MoreScreen() {
     setForm(settings);
   }, [settings]);
 
-  const loadTodayStats = useCallback(async () => {
+  const loadStats = useCallback(async () => {
+    const todayStr = todayIsoDate();
+    const monthStart = monthStartIso();
     try {
-      const today = todayIsoDate();
-      const data = await api.reports.sales(today, today);
-      setTodayRevenue(formatCurrency(data.summary.revenue));
-      setTodayCount(String(data.summary.count));
-      setTodayProfit(formatCurrency(data.summary.profit));
+      const [todayData, monthData] = await Promise.all([
+        api.reports.sales(todayStr, todayStr),
+        api.reports.sales(monthStart, todayStr),
+      ]);
+      setToday({ revenue: todayData.summary.revenue, profit: todayData.summary.profit, count: todayData.summary.count });
+      setMonth({ revenue: monthData.summary.revenue, profit: monthData.summary.profit, count: monthData.summary.count });
     } catch {
-      setTodayRevenue('—');
-      setTodayCount('—');
-      setTodayProfit('—');
+      setToday(EMPTY);
+      setMonth(EMPTY);
     }
   }, []);
 
   useEffect(() => {
-    loadTodayStats();
-  }, [loadTodayStats]);
+    loadStats();
+  }, [loadStats]);
 
   async function handleSaveSettings() {
     setSettingsLoading(true);
@@ -68,19 +76,66 @@ export default function MoreScreen() {
   }
 
   const menuItems: MenuItem[] = [
-    { icon: 'bar-chart-outline', label: 'Reports', onPress: () => router.push('/reports') },
+    { icon: 'bar-chart-outline', label: 'Reports', onPress: () => router.push('/reports'), color: '#8b5cf6' },
     { icon: 'settings-outline', label: 'Business Settings', onPress: () => setSettingsOpen(!settingsOpen) },
   ];
 
-  return (
-    <Screen onRefresh={loadTodayStats}>
-      <Text style={st.title}>More</Text>
+  const monthName = new Date().toLocaleDateString('en-IN', { month: 'long' });
 
-      {/* Today's Quick Stats */}
-      <Text style={st.secLabel}>Today's Sales</Text>
-      <View style={st.statsRow}>
-        <StatCard label="Revenue" value={todayRevenue} subtitle={`${todayCount} invoices`} />
-        <StatCard label="Profit" value={todayProfit} accent={colors.success} />
+  return (
+    <Screen onRefresh={loadStats}>
+      <Text style={st.title}>Dashboard</Text>
+
+      {/* Today */}
+      <View style={st.statsCard}>
+        <View style={st.statsHeader}>
+          <Ionicons name="today-outline" size={16} color={colors.primary[600]} />
+          <Text style={st.statsLabel}>Today</Text>
+        </View>
+        <View style={st.statsGrid}>
+          <View style={st.statItem}>
+            <Text style={st.statValue}>{formatCurrency(today.revenue)}</Text>
+            <Text style={st.statDesc}>Revenue</Text>
+          </View>
+          <View style={[st.statDivider]} />
+          <View style={st.statItem}>
+            <Text style={[st.statValue, { color: today.profit >= 0 ? colors.success : colors.danger }]}>
+              {formatCurrency(today.profit)}
+            </Text>
+            <Text style={st.statDesc}>Profit</Text>
+          </View>
+          <View style={[st.statDivider]} />
+          <View style={st.statItem}>
+            <Text style={st.statValue}>{today.count}</Text>
+            <Text style={st.statDesc}>Sales</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* This Month */}
+      <View style={[st.statsCard, { borderLeftColor: '#8b5cf6' }]}>
+        <View style={st.statsHeader}>
+          <Ionicons name="calendar-outline" size={16} color="#8b5cf6" />
+          <Text style={st.statsLabel}>{monthName}</Text>
+        </View>
+        <View style={st.statsGrid}>
+          <View style={st.statItem}>
+            <Text style={st.statValue}>{formatCurrency(month.revenue)}</Text>
+            <Text style={st.statDesc}>Revenue</Text>
+          </View>
+          <View style={[st.statDivider]} />
+          <View style={st.statItem}>
+            <Text style={[st.statValue, { color: month.profit >= 0 ? colors.success : colors.danger }]}>
+              {formatCurrency(month.profit)}
+            </Text>
+            <Text style={st.statDesc}>Profit</Text>
+          </View>
+          <View style={[st.statDivider]} />
+          <View style={st.statItem}>
+            <Text style={st.statValue}>{month.count}</Text>
+            <Text style={st.statDesc}>Sales</Text>
+          </View>
+        </View>
       </View>
 
       {/* Menu */}
@@ -88,7 +143,7 @@ export default function MoreScreen() {
       <Card style={st.menuCard}>
         {menuItems.map((item, i) => (
           <Pressable key={item.label} onPress={item.onPress} style={[st.menuRow, i < menuItems.length - 1 && st.menuRowBorder]}>
-            <View style={[st.menuIconWrap, item.color ? { backgroundColor: item.color + '15' } : undefined]}>
+            <View style={[st.menuIconWrap, { backgroundColor: (item.color ?? colors.primary[600]) + '15' }]}>
               <Ionicons name={item.icon as any} size={20} color={item.color ?? colors.primary[600]} />
             </View>
             <Text style={st.menuLabel}>{item.label}</Text>
@@ -121,12 +176,60 @@ export default function MoreScreen() {
 const st = StyleSheet.create({
   title: { fontFamily: font.bold, fontSize: 26, color: colors.text, marginBottom: spacing.md },
   secLabel: { fontFamily: font.semiBold, fontSize: 16, color: colors.text, marginBottom: spacing.sm, marginTop: spacing.md },
-  statsRow: { flexDirection: 'row', gap: spacing.sm },
 
+  // Stats card
+  statsCard: {
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary[600],
+    ...shadows.card,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: spacing.sm,
+  },
+  statsLabel: {
+    fontFamily: font.semiBold,
+    fontSize: 13,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontFamily: font.bold,
+    fontSize: 18,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  statDesc: {
+    fontFamily: font.regular,
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: colors.border,
+  },
+
+  // Menu
   menuCard: { padding: 0, overflow: 'hidden' },
   menuRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: spacing.md },
   menuRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
-  menuIconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary[50], alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  menuIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   menuLabel: { flex: 1, fontFamily: font.medium, fontSize: 15, color: colors.text },
 
   settingsCard: { marginTop: spacing.sm },

@@ -11,9 +11,14 @@ router.get('/sales', async (req, res) => {
   try {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    let toDate: Date | undefined;
+    if (to) {
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
+    }
     const report = await getTenantDb(req).salesReport(
       from ? new Date(from) : undefined,
-      to ? new Date(to) : undefined
+      toDate
     );
     res.json({
       summary: report.summary,
@@ -75,9 +80,14 @@ router.get('/top-products', async (req, res) => {
     const to = req.query.to as string | undefined;
     const limit = Number(req.query.limit ?? '10');
     const pageSize = Math.min(Math.max(1, limit), 50);
+    let toDate: Date | undefined;
+    if (to) {
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
+    }
     const report = await getTenantDb(req).topSellingProducts(
       from ? new Date(from) : undefined,
-      to ? new Date(to) : undefined,
+      toDate,
       pageSize
     );
     res.json(report);
