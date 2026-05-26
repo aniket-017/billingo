@@ -896,6 +896,45 @@ export class TenantDb {
     };
   }
 
+  async topSellingProducts(from?: Date, to?: Date, limit = 10) {
+    const conditions: Prisma.Sql[] = [];
+    if (from) conditions.push(Prisma.sql`i.date >= ${from}`);
+    if (to) {
+      const toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
+      conditions.push(Prisma.sql`i.date <= ${toDate}`);
+    }
+    const where =
+      conditions.length > 0
+        ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
+        : Prisma.empty;
+
+    const rows = await prisma.$queryRaw<
+      { product_id: string; product_name: string; total_qty: unknown; total_revenue: unknown; order_count: bigint }[]
+    >`
+      SELECT
+        ii.product_id,
+        ii.product_name,
+        COALESCE(SUM(ii.quantity), 0) AS total_qty,
+        COALESCE(SUM(ii.amount), 0) AS total_revenue,
+        COUNT(DISTINCT i.id)::bigint AS order_count
+      FROM ${Prisma.raw(`${this.s}.invoice_items`)} ii
+      JOIN ${Prisma.raw(`${this.s}.invoices`)} i ON i.id = ii.invoice_id
+      ${where}
+      GROUP BY ii.product_id, ii.product_name
+      ORDER BY total_qty DESC
+      LIMIT ${limit}
+    `;
+
+    return rows.map((r) => ({
+      productId: String(r.product_id),
+      productName: String(r.product_name),
+      totalQty: toNum(r.total_qty),
+      totalRevenue: toNum(r.total_revenue),
+      orderCount: Number(r.order_count),
+    }));
+  }
+
   async lowStockProducts(): Promise<TenantProduct[]> {
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       SELECT * FROM ${Prisma.raw(`${this.s}.products`)}

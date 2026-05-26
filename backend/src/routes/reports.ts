@@ -69,4 +69,21 @@ router.get('/inventory', async (req, res) => {
   }
 });
 
+router.get('/top-products', async (req, res) => {
+  try {
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+    const limit = Number(req.query.limit ?? '10');
+    const pageSize = Math.min(Math.max(1, limit), 50);
+    const report = await getTenantDb(req).topSellingProducts(
+      from ? new Date(from) : undefined,
+      to ? new Date(to) : undefined,
+      pageSize
+    );
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
 export default router;

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { api, type Product } from '@/src/api/client';
+import { Ionicons } from '@expo/vector-icons';
+import { api } from '@/src/api/client';
 import Button from '@/src/components/Button';
 import Card from '@/src/components/Card';
 import Input from '@/src/components/Input';
@@ -10,8 +11,10 @@ import StatCard from '@/src/components/StatCard';
 import Toast from '@/src/components/Toast';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { useBusinessSettings } from '@/src/contexts/BusinessSettingsContext';
-import { colors, font, spacing } from '@/src/theme';
+import { colors, font, radius, shadows, spacing } from '@/src/theme';
 import { formatCurrency, todayIsoDate } from '@/src/utils/format';
+
+type MenuItem = { icon: string; label: string; onPress: () => void; color?: string };
 
 export default function MoreScreen() {
   const { logout } = useAuth();
@@ -20,14 +23,8 @@ export default function MoreScreen() {
   const [todayCount, setTodayCount] = useState('—');
   const [todayProfit, setTodayProfit] = useState('—');
 
-  const [productQuery, setProductQuery] = useState('');
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [stockQty, setStockQty] = useState('');
-  const [stockNotes, setStockNotes] = useState('');
-  const [stockLoading, setStockLoading] = useState(false);
-
   const [form, setForm] = useState(settings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -53,53 +50,6 @@ export default function MoreScreen() {
     loadTodayStats();
   }, [loadTodayStats]);
 
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      if (!productQuery.trim()) {
-        setProducts([]);
-        return;
-      }
-      try {
-        const list = await api.products.list(productQuery);
-        setProducts(list.slice(0, 8));
-      } catch {
-        setProducts([]);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [productQuery]);
-
-  async function handleStockIn() {
-    if (!selectedProduct) {
-      setToast({ message: 'Select a product', type: 'error' });
-      return;
-    }
-    const qty = Number(stockQty);
-    if (!qty || qty <= 0) {
-      setToast({ message: 'Enter a valid quantity', type: 'error' });
-      return;
-    }
-    setStockLoading(true);
-    try {
-      await api.inventory.stockIn({
-        productId: selectedProduct.id,
-        quantity: qty,
-        notes: stockNotes.trim(),
-        referenceLabel: 'Mobile stock receive',
-      });
-      setStockQty('');
-      setStockNotes('');
-      setSelectedProduct(null);
-      setProductQuery('');
-      setProducts([]);
-      setToast({ message: 'Stock received', type: 'success' });
-    } catch (e) {
-      setToast({ message: e instanceof Error ? e.message : 'Stock receive failed', type: 'error' });
-    } finally {
-      setStockLoading(false);
-    }
-  }
-
   async function handleSaveSettings() {
     setSettingsLoading(true);
     try {
@@ -117,125 +67,68 @@ export default function MoreScreen() {
     router.replace('/login');
   }
 
+  const menuItems: MenuItem[] = [
+    { icon: 'bar-chart-outline', label: 'Reports', onPress: () => router.push('/reports') },
+    { icon: 'settings-outline', label: 'Business Settings', onPress: () => setSettingsOpen(!settingsOpen) },
+  ];
+
   return (
     <Screen onRefresh={loadTodayStats}>
-      <Text style={styles.title}>More</Text>
+      <Text style={st.title}>More</Text>
 
-      <Text style={styles.sectionTitle}>Today's sales</Text>
-      <View style={styles.statsRow}>
+      {/* Today's Quick Stats */}
+      <Text style={st.secLabel}>Today's Sales</Text>
+      <View style={st.statsRow}>
         <StatCard label="Revenue" value={todayRevenue} subtitle={`${todayCount} invoices`} />
         <StatCard label="Profit" value={todayProfit} accent={colors.success} />
       </View>
 
-      <Text style={styles.sectionTitle}>Stock receive</Text>
-      <Card>
-        <Input
-          label="Find product"
-          value={productQuery}
-          onChangeText={setProductQuery}
-          placeholder="Search by name or barcode"
-        />
-        {products.map((p) => (
-          <Button
-            key={p.id}
-            title={`${p.name} (${p.quantityOnHand ?? 0} in stock)`}
-            variant={selectedProduct?.id === p.id ? 'primary' : 'secondary'}
-            onPress={() => setSelectedProduct(p)}
-            style={styles.productPick}
-          />
+      {/* Menu */}
+      <Text style={st.secLabel}>Menu</Text>
+      <Card style={st.menuCard}>
+        {menuItems.map((item, i) => (
+          <Pressable key={item.label} onPress={item.onPress} style={[st.menuRow, i < menuItems.length - 1 && st.menuRowBorder]}>
+            <View style={[st.menuIconWrap, item.color ? { backgroundColor: item.color + '15' } : undefined]}>
+              <Ionicons name={item.icon as any} size={20} color={item.color ?? colors.primary[600]} />
+            </View>
+            <Text style={st.menuLabel}>{item.label}</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.surface[300]} />
+          </Pressable>
         ))}
-        {selectedProduct ? (
-          <Text style={styles.selectedLabel}>Selected: {selectedProduct.name}</Text>
-        ) : null}
-        <Input
-          label="Quantity to add"
-          value={stockQty}
-          onChangeText={setStockQty}
-          keyboardType="numeric"
-          placeholder="e.g. 10"
-        />
-        <Input
-          label="Notes (optional)"
-          value={stockNotes}
-          onChangeText={setStockNotes}
-          placeholder="Supplier, batch, etc."
-        />
-        <Button title="Receive stock" onPress={handleStockIn} loading={stockLoading} />
       </Card>
 
-      <Text style={styles.sectionTitle}>Business settings</Text>
-      <Card>
-        <Input
-          label="Business name"
-          value={form.businessName}
-          onChangeText={(v) => setForm((f) => ({ ...f, businessName: v }))}
-        />
-        <Input
-          label="Phone"
-          value={form.phone}
-          onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
-          keyboardType="phone-pad"
-        />
-        <Input
-          label="Email"
-          value={form.email}
-          onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-        <Input
-          label="Address"
-          value={form.address}
-          onChangeText={(v) => setForm((f) => ({ ...f, address: v }))}
-        />
-        <Input
-          label="Tax ID"
-          value={form.taxId}
-          onChangeText={(v) => setForm((f) => ({ ...f, taxId: v }))}
-        />
-        <Button title="Save settings" onPress={handleSaveSettings} loading={settingsLoading} />
-      </Card>
+      {/* Business Settings (collapsible) */}
+      {settingsOpen ? (
+        <Card style={st.settingsCard}>
+          <Input label="Business name" value={form.businessName} onChangeText={(v) => setForm((f) => ({ ...f, businessName: v }))} />
+          <Input label="Phone" value={form.phone} onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))} keyboardType="phone-pad" />
+          <Input label="Email" value={form.email} onChangeText={(v) => setForm((f) => ({ ...f, email: v }))} keyboardType="email-address" autoCapitalize="none" />
+          <Input label="Address" value={form.address} onChangeText={(v) => setForm((f) => ({ ...f, address: v }))} />
+          <Input label="Tax ID" value={form.taxId} onChangeText={(v) => setForm((f) => ({ ...f, taxId: v }))} />
+          <Button title="Save settings" onPress={handleSaveSettings} loading={settingsLoading} />
+        </Card>
+      ) : null}
 
-      <View style={styles.logoutWrap}>
+      <View style={st.logoutWrap}>
         <Button title="Sign out" variant="danger" onPress={handleLogout} />
       </View>
 
-      {toast ? (
-        <Toast visible={!!toast} message={toast.message} type={toast.type} onHide={() => setToast(null)} />
-      ) : null}
+      {toast ? <Toast visible={!!toast} message={toast.message} type={toast.type} onHide={() => setToast(null)} /> : null}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  title: {
-    fontFamily: font.bold,
-    fontSize: 26,
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    fontFamily: font.semiBold,
-    fontSize: 16,
-    color: colors.text,
-    marginBottom: spacing.sm,
-    marginTop: spacing.md,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  productPick: {
-    marginBottom: spacing.sm,
-  },
-  selectedLabel: {
-    fontFamily: font.medium,
-    fontSize: 14,
-    color: colors.primary[700],
-    marginBottom: spacing.sm,
-  },
-  logoutWrap: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
-  },
+const st = StyleSheet.create({
+  title: { fontFamily: font.bold, fontSize: 26, color: colors.text, marginBottom: spacing.md },
+  secLabel: { fontFamily: font.semiBold, fontSize: 16, color: colors.text, marginBottom: spacing.sm, marginTop: spacing.md },
+  statsRow: { flexDirection: 'row', gap: spacing.sm },
+
+  menuCard: { padding: 0, overflow: 'hidden' },
+  menuRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: spacing.md },
+  menuRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  menuIconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary[50], alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  menuLabel: { flex: 1, fontFamily: font.medium, fontSize: 15, color: colors.text },
+
+  settingsCard: { marginTop: spacing.sm },
+  logoutWrap: { marginTop: spacing.lg, marginBottom: spacing.xl },
 });

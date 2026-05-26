@@ -347,6 +347,10 @@ export const api = {
       }>(
         `/reports/sales${from || to ? '?' + new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString() : ''}`
       ),
+    topProducts: (from?: string, to?: string, limit = 10) =>
+      request<{ productId: string; productName: string; totalQty: number; totalRevenue: number; orderCount: number }[]>(
+        `/reports/top-products?${new URLSearchParams({ ...(from && { from }), ...(to && { to }), limit: String(limit) }).toString()}`
+      ),
   },
   auth: {
     login: (email: string, password: string) =>
