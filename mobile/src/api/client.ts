@@ -64,6 +64,9 @@ export type Product = {
   dealerName?: string;
 };
 
+export type ParsedInvoicePricingUnit = 'strip' | 'box' | 'tablet';
+export type ParsedInvoiceConfidence = 'high' | 'low';
+
 export type ParsedInvoiceProduct = {
   name: string;
   qty: number;
@@ -74,6 +77,12 @@ export type ParsedInvoiceProduct = {
   expiry: string;
   packSize: number;
   category: string;
+  pricingUnit: ParsedInvoicePricingUnit;
+  numBoxes: number;
+  stripsPerBox: number;
+  tabletsPerStrip: number;
+  confidence: ParsedInvoiceConfidence;
+  packRaw: string;
 };
 
 export type ParsedInvoiceResult = {

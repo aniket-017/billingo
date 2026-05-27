@@ -73,7 +73,7 @@ export default function AddCustomerSheet({
       }
       try {
         const results = await api.customers.list(phoneCheck.phone);
-        const hit = findCustomerByPhoneInList(results, phone);
+        const hit = findCustomerByPhoneInList(results.items, phone);
         setServerMatch(hit ?? null);
       } catch {
         setServerMatch(null);
@@ -125,8 +125,8 @@ export default function AddCustomerSheet({
         try {
           const results = await api.customers.list(phoneCheck.phone);
           const hit =
-            findCustomerByPhoneInList(results, phone) ??
-            results.find((c) => c.name === conflictName);
+            findCustomerByPhoneInList(results.items, phone) ??
+            results.items.find((c) => c.name === conflictName);
           if (hit) {
             selectExisting(hit);
             return;

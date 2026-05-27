@@ -2,6 +2,9 @@ import { cleanModelOutput, getProductNameAiProvider } from './productNameAiShare
 import { isGeminiConfigured } from './gemini.js';
 import { isDeepSeekConfigured } from './deepseek.js';
 
+export type PricingUnit = 'strip' | 'box' | 'tablet';
+export type ParseConfidence = 'high' | 'low';
+
 export type ParsedInvoiceProduct = {
   name: string;
   qty: number;
@@ -12,6 +15,12 @@ export type ParsedInvoiceProduct = {
   expiry: string;
   packSize: number;
   category: string;
+  pricingUnit: PricingUnit;
+  numBoxes: number;
+  stripsPerBox: number;
+  tabletsPerStrip: number;
+  confidence: ParseConfidence;
+  packRaw: string;
 };
 
 export type ParsedInvoiceResult = {
@@ -23,27 +32,54 @@ const INVOICE_PARSE_PROMPT = `You extract structured data from OCR text of India
 
 Return a JSON object with two fields:
 1. "dealerName" (string): The supplier/dealer/distributor name from the invoice header. Default "" if not found.
-2. "products" (array): An array of product objects.
+2. "products" (array): An array of product objects in exact top-to-bottom invoice row order.
 
 Each product object has these fields:
-- "name" (string): The medicine/product name. Include strength/dosage if present (e.g. "Paracetamol 500mg", "Amoxicillin 250mg").
-- "qty" (number): Quantity purchased. Use the numeric value. Default 0 if not found.
-- "rate" (number): Purchase price/rate (the cost the shop owner pays to the supplier) per unit or per strip. Default 0 if not found.
-- "mrp" (number): Maximum Retail Price (the price printed on the product packaging). Default 0 if not found.
-- "sellingPrice" (number): The actual selling price if different from MRP (e.g. discounted price). Default 0 if not found. If only MRP is shown, set to 0.
-- "batchNo" (string): Batch/lot number. Default "" if not found.
-- "expiry" (string): Expiry date in YYYY-MM-DD format. If only month and year are given (e.g. "06/27", "Jun 2027"), use the last day of that month (e.g. "2027-06-30"). Default "" if not found.
-- "packSize" (number): Number of units (tablets/capsules) per strip or pack if mentioned (e.g. "10s", "1x10", "strip of 10", "10T" = 10). Default 1 if not mentioned or if the item is not a strip/pack product.
-- "category" (string): The product category based on the product name. Use one of these categories: "Tablet", "Capsule", "Syrup", "Injection", "Cream", "Ointment", "Drops", "Powder", "Inhaler", "Gel", "Lotion", "Spray", "Soap", "Surgical", "Device", "Supplement", "Ayurvedic", "General". Infer from the product name (e.g. "Tab" = "Tablet", "Cap" = "Capsule", "Syr" = "Syrup", "Inj" = "Injection", "Oint" = "Ointment"). Default "General" if unclear.
+- "name" (string): Medicine/product name with strength if present (e.g. "MEFTAL SPAS TAB", "ONDEM MD 4MG TAB").
+- "qty" (number): Invoice quantity column — count of strips/boxes/bottles purchased, NOT total tablet count. Default 0.
+- "rate" (number): Purchase/cost price per pricing unit (strip, box, or bottle as printed). Default 0.
+- "mrp" (number): Maximum Retail Price for the same pricing unit. Default 0.
+- "sellingPrice" (number): Set equal to mrp when MRP is known. Default 0 if MRP missing.
+- "batchNo" (string): Batch/lot number. Default "".
+- "expiry" (string): Expiry in MM/YY format only (e.g. "06/27", "12/28"). Use 2-digit month with leading zero when needed. Default "".
+- "packRaw" (string): Raw PACK/Pkg/UNIT text from invoice (e.g. "30*10", "10'S", "500ML", "1*10"). Default "".
+- "packSize" (number): Tablets/capsules per strip (legacy). Same as tabletsPerStrip when applicable. Default 1.
+- "category" (string): One of: "Tablet", "Capsule", "Syrup", "Injection", "Cream", "Ointment", "Drops", "Powder", "Inhaler", "Gel", "Lotion", "Spray", "Soap", "Surgical", "Device", "Supplement", "Ayurvedic", "General".
+- "pricingUnit" (string): "strip", "box", or "tablet" — which unit MRP/rate refer to.
+- "numBoxes" (number): Boxes or outer packs purchased. For liquids/devices use invoice qty. Default 1.
+- "stripsPerBox" (number): Strips per box. Default 1 for non-strip products.
+- "tabletsPerStrip" (number): Tablets/capsules per strip. Default 1 for bottles/liquids/devices.
+- "confidence" (string): "high" if name, price, and pack are clear; "low" if any critical field was guessed or missing.
+
+Common invoice layouts (OCR may mix columns):
+- MARG ERP style: Qty | MFR | Product | PACK | Batch | Exp | HSN | MRP | Rate | Amount
+- Sarda/Bhagirath style: Sr | HSN | MFG | Name | Pkg | Batch | Exp | MRP | Qty | Rate | Amount
+- Vardhaman style: HSN | PRODUCT NAME | UNIT | COM | QTY | BATCH | EXP | M.R.P. | RATE
+
+PACK / Pkg parsing rules:
+- "10'S", "10S", "15 T", "10TA" → tabletsPerStrip=10, stripsPerBox=1, pricingUnit="strip"
+- "1*10", "1x10", "1*20" → stripsPerBox=1, tabletsPerStrip from second number, pricingUnit="strip"
+- "30*10", "50X10", "20X10", "30X10T" → stripsPerBox=first number, tabletsPerStrip=second, pricingUnit="box"
+- "500ML", "250 ML", "30ML", "200M", "1 ML", "15ML" → numBoxes=qty, stripsPerBox=1, tabletsPerStrip=1, pricingUnit="box" (single bottle/unit)
+- "1", "100X1" (syringe/set/device) → numBoxes=qty, stripsPerBox=1, tabletsPerStrip=1, pricingUnit="box"
+
+Product type hints from name:
+- TAB, CAP, DT → Tablet/Capsule with strip packaging
+- SYP, SYRUP, LIQ, DROP, ML → Syrup/Drops, single-unit pricing
+- CREAM, OINT, GEL, GM → Cream/Ointment, single tube
+- INJ, I.V., VIAL → Injection
+- DIAPER, SET, SYRN → General/Device
 
 Rules:
-- Extract ALL product rows from the text. Do not skip any.
-- CRITICAL: List products in the "products" array in the exact same top-to-bottom order as they appear on the invoice. Do not sort alphabetically, by price, or by quantity. The first product row on the invoice must be the first item in the array.
-- The dealerName should come from the invoice header — look for the company/firm name at the top.
-- Ignore totals, subtotals, tax lines, GST details, invoice number, date.
-- If a value is ambiguous or unreadable, use the defaults above.
-- Numbers should be plain numbers without currency symbols.
-- Return ONLY the JSON object, no explanation or markdown.`;
+- Extract ALL product rows. Do not skip any.
+- CRITICAL: products array order MUST match invoice top-to-bottom order. Never sort alphabetically.
+- dealerName = supplier at top (not the medical store buyer).
+- Ignore totals, subtotals, tax/GST summary lines, invoice number, page numbers.
+- rate = cost to retailer; mrp = printed MRP; sellingPrice = mrp when mrp > 0.
+- qty column → numBoxes when it counts strips/boxes/bottles purchased.
+- Numbers without currency symbols.
+- Set confidence="low" when name, mrp/rate, or pack is unclear.
+- Return ONLY valid JSON, no markdown.`;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
@@ -58,26 +94,198 @@ const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepsee
   ''
 );
 
-function mapProduct(item: Record<string, unknown>): ParsedInvoiceProduct {
+const STRIP_CATEGORIES = new Set(['Tablet', 'Capsule']);
+
+function clampInt(n: number, min = 1): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.round(n));
+}
+
+/** Normalize expiry to MM/YY from various invoice formats. */
+export function normalizeExpiryMmYy(raw: string): string {
+  const s = raw.trim();
+  if (!s) return '';
+
+  const iso = s.match(/^(\d{4})-(\d{2})/);
+  if (iso) return `${iso[2]}/${iso[1].slice(-2)}`;
+
+  const sep = s.match(/^(\d{1,2})[\/\-](\d{2,4})$/);
+  if (sep) {
+    const mm = sep[1].padStart(2, '0');
+    const yy = sep[2].length === 4 ? sep[2].slice(-2) : sep[2];
+    return `${mm}/${yy}`;
+  }
+
+  return s;
+}
+
+/** Parse PACK column strings into packaging fields. */
+export function parsePackString(
+  packRaw: string,
+  qty: number
+): Pick<ParsedInvoiceProduct, 'numBoxes' | 'stripsPerBox' | 'tabletsPerStrip' | 'pricingUnit'> & {
+  guessed: boolean;
+} {
+  const raw = packRaw.trim().toUpperCase();
+  if (!raw) {
+    return {
+      numBoxes: Math.max(1, qty || 1),
+      stripsPerBox: 1,
+      tabletsPerStrip: 1,
+      pricingUnit: 'strip',
+      guessed: true,
+    };
+  }
+
+  if (/\d+\s*ML|\d+\s*M\b|ML\b|GM\b|G\b/i.test(raw) && !/\*|X/.test(raw)) {
+    return {
+      numBoxes: Math.max(1, qty || 1),
+      stripsPerBox: 1,
+      tabletsPerStrip: 1,
+      pricingUnit: 'box',
+      guessed: false,
+    };
+  }
+
+  const star = raw.match(/^(\d+)\s*[*X]\s*(\d+)/);
+  if (star) {
+    const a = parseInt(star[1], 10);
+    const b = parseInt(star[2], 10);
+    if (a === 1) {
+      return {
+        numBoxes: Math.max(1, qty || 1),
+        stripsPerBox: 1,
+        tabletsPerStrip: clampInt(b),
+        pricingUnit: 'strip',
+        guessed: false,
+      };
+    }
+    return {
+      numBoxes: Math.max(1, qty || 1),
+      stripsPerBox: clampInt(a),
+      tabletsPerStrip: clampInt(b),
+      pricingUnit: 'box',
+      guessed: false,
+    };
+  }
+
+  const stripOnly = raw.match(/^(\d+)\s*'?S?\s*T?A?$/i) || raw.match(/^(\d+)\s*T$/i);
+  if (stripOnly) {
+    return {
+      numBoxes: Math.max(1, qty || 1),
+      stripsPerBox: 1,
+      tabletsPerStrip: clampInt(parseInt(stripOnly[1], 10)),
+      pricingUnit: 'strip',
+      guessed: false,
+    };
+  }
+
+  if (raw === '1' || /^1\s*[*X]\s*1$/i.test(raw)) {
+    return {
+      numBoxes: Math.max(1, qty || 1),
+      stripsPerBox: 1,
+      tabletsPerStrip: 1,
+      pricingUnit: 'box',
+      guessed: false,
+    };
+  }
+
+  const num = parseInt(raw.replace(/\D/g, ''), 10);
+  if (num > 1 && num <= 200) {
+    return {
+      numBoxes: Math.max(1, qty || 1),
+      stripsPerBox: 1,
+      tabletsPerStrip: clampInt(num),
+      pricingUnit: 'strip',
+      guessed: true,
+    };
+  }
+
   return {
-    name: String(item.name ?? '').trim(),
-    qty: Number(item.qty) || 0,
-    rate: Number(item.rate) || 0,
-    mrp: Number(item.mrp ?? item.MRP ?? 0) || 0,
-    sellingPrice: Number(item.sellingPrice ?? item.selling_price ?? 0) || 0,
+    numBoxes: Math.max(1, qty || 1),
+    stripsPerBox: 1,
+    tabletsPerStrip: 1,
+    pricingUnit: 'box',
+    guessed: true,
+  };
+}
+
+function parsePricingUnit(val: unknown): PricingUnit {
+  const s = String(val ?? '').toLowerCase();
+  if (s === 'box' || s === 'tablet') return s;
+  return 'strip';
+}
+
+function mapProduct(item: Record<string, unknown>): ParsedInvoiceProduct {
+  const name = String(item.name ?? '').trim();
+  const qty = Number(item.qty) || 0;
+  const rate = Number(item.rate) || 0;
+  const mrp = Number(item.mrp ?? item.MRP ?? 0) || 0;
+  let sellingPrice = Number(item.sellingPrice ?? item.selling_price ?? 0) || 0;
+  if (mrp > 0 && sellingPrice === 0) sellingPrice = mrp;
+
+  const packRaw = String(item.packRaw ?? item.pack_raw ?? item.pack ?? item.PACK ?? '').trim();
+  const expiry = normalizeExpiryMmYy(
+    String(item.expiry ?? item.expiryDate ?? item.expiry_date ?? '').trim()
+  );
+  const category = String(item.category ?? 'General').trim() || 'General';
+
+  let numBoxes = clampInt(Number(item.numBoxes ?? item.num_boxes ?? 0) || qty || 1);
+  let stripsPerBox = clampInt(Number(item.stripsPerBox ?? item.strips_per_box ?? 0) || 1);
+  let tabletsPerStrip = clampInt(
+    Number(item.tabletsPerStrip ?? item.tablets_per_strip ?? item.packSize ?? item.pack_size ?? 0) ||
+      1
+  );
+  let pricingUnit = parsePricingUnit(item.pricingUnit ?? item.pricing_unit);
+  let confidence: ParseConfidence =
+    String(item.confidence ?? '').toLowerCase() === 'low' ? 'low' : 'high';
+
+  const hasStructuredPack =
+    Number(item.stripsPerBox ?? item.strips_per_box) > 0 ||
+    Number(item.tabletsPerStrip ?? item.tablets_per_strip) > 0;
+
+  if (!hasStructuredPack && packRaw) {
+    const parsed = parsePackString(packRaw, qty);
+    numBoxes = parsed.numBoxes;
+    stripsPerBox = parsed.stripsPerBox;
+    tabletsPerStrip = parsed.tabletsPerStrip;
+    pricingUnit = parsed.pricingUnit;
+    if (parsed.guessed) confidence = 'low';
+  }
+
+  if (qty > 0 && numBoxes === 1 && qty > 1) {
+    numBoxes = clampInt(qty);
+  }
+
+  if (!name) confidence = 'low';
+  if (mrp <= 0 && rate <= 0) confidence = 'low';
+  if (!packRaw && STRIP_CATEGORIES.has(category) && stripsPerBox === 1 && tabletsPerStrip === 1) {
+    confidence = 'low';
+  }
+
+  return {
+    name,
+    qty,
+    rate,
+    mrp,
+    sellingPrice,
     batchNo: String(item.batchNo ?? item.batch_no ?? item.batch ?? '').trim(),
-    expiry: String(item.expiry ?? item.expiryDate ?? item.expiry_date ?? '').trim(),
-    packSize: Math.max(1, Number(item.packSize ?? item.pack_size ?? 1)),
-    category: String(item.category ?? 'General').trim(),
+    expiry,
+    packSize: tabletsPerStrip,
+    category,
+    pricingUnit,
+    numBoxes,
+    stripsPerBox,
+    tabletsPerStrip,
+    confidence,
+    packRaw,
   };
 }
 
 function parseJsonResult(raw: string): ParsedInvoiceResult {
-  let text = cleanModelOutput(raw);
-
+  const text = cleanModelOutput(raw);
   const parsed = JSON.parse(text);
 
-  // Handle new object format: { dealerName, products: [...] }
   if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.products)) {
     return {
       dealerName: String(parsed.dealerName ?? parsed.dealer_name ?? '').trim(),
@@ -85,7 +293,6 @@ function parseJsonResult(raw: string): ParsedInvoiceResult {
     };
   }
 
-  // Backwards-compat: plain array response
   if (Array.isArray(parsed)) {
     return {
       dealerName: '',
@@ -112,7 +319,7 @@ async function parseInvoiceWithGemini(ocrText: string): Promise<ParsedInvoiceRes
       contents: [{ role: 'user', parts: [{ text: ocrText }] }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
     }),
@@ -147,7 +354,7 @@ async function parseInvoiceWithDeepSeek(ocrText: string): Promise<ParsedInvoiceR
       ],
       stream: false,
       temperature: 0.1,
-      max_tokens: 4096,
+      max_tokens: 8192,
     }),
   });
 
