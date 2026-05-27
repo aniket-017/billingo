@@ -38,6 +38,7 @@ Each product object has these fields:
 
 Rules:
 - Extract ALL product rows from the text. Do not skip any.
+- CRITICAL: List products in the "products" array in the exact same top-to-bottom order as they appear on the invoice. Do not sort alphabetically, by price, or by quantity. The first product row on the invoice must be the first item in the array.
 - The dealerName should come from the invoice header — look for the company/firm name at the top.
 - Ignore totals, subtotals, tax lines, GST details, invoice number, date.
 - If a value is ambiguous or unreadable, use the defaults above.

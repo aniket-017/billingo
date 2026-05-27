@@ -17,6 +17,7 @@ import { api, type ParsedInvoiceProduct } from '@/src/api/client';
 import Button from '@/src/components/Button';
 import Input from '@/src/components/Input';
 import { colors, font, radius, spacing } from '@/src/theme';
+import { extractInvoiceOcrText, type InvoiceOcrResult } from '@/src/utils/extractInvoiceOcrText';
 
 let recognizeText: ((uri: string) => Promise<unknown>) | null = null;
 try {
@@ -25,22 +26,6 @@ try {
   recognizeText = mlkit.recognizeText;
 } catch {
   // ML Kit unavailable (Expo Go)
-}
-
-type OcrBlock = { text: string; lines: { text: string; frame: { top: number; left: number } }[] };
-type OcrResult = { text: string; blocks: OcrBlock[] };
-
-function extractFullText(result: OcrResult): string {
-  const full = result.text?.trim();
-  if (full) return full;
-  const lines: { text: string; top: number; left: number }[] = [];
-  for (const block of result.blocks ?? []) {
-    for (const line of block.lines ?? []) {
-      lines.push({ text: line.text, top: line.frame.top, left: line.frame.left });
-    }
-  }
-  lines.sort((a, b) => a.top - b.top || a.left - b.left);
-  return lines.map((l) => l.text.trim()).join('\n');
 }
 
 type PricingUnit = 'strip' | 'box' | 'tablet';
@@ -127,8 +112,8 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
         return;
       }
 
-      const ocrResult = (await recognizeText(result.assets[0].uri)) as OcrResult;
-      const fullText = extractFullText(ocrResult);
+      const ocrResult = (await recognizeText(result.assets[0].uri)) as InvoiceOcrResult;
+      const fullText = extractInvoiceOcrText(ocrResult);
 
       if (!fullText) {
         setError('Could not read any text from the image. Try a clearer photo.');
