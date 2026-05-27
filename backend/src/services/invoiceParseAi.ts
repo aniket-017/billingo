@@ -1,4 +1,4 @@
-import { cleanModelOutput, getProductNameAiProvider } from './productNameAiShared.js';
+import { cleanModelOutput, getInvoiceImageAiProvider, getProductNameAiProvider } from './productNameAiShared.js';
 import { isGeminiConfigured } from './gemini.js';
 import { isDeepSeekConfigured } from './deepseek.js';
 
@@ -27,6 +27,38 @@ export type ParsedInvoiceResult = {
   dealerName: string;
   products: ParsedInvoiceProduct[];
 };
+
+const INVOICE_IMAGE_PARSE_PROMPT = `You extract structured data from a photo of an Indian medical/pharmaceutical supplier invoice, purchase bill, or stock sheet.
+
+Read the full product table directly from the image (no OCR step). Return a JSON object with two fields:
+1. "dealerName" (string): The supplier/dealer/distributor name from the invoice header. Default "" if not found.
+2. "products" (array): An array of product objects in exact top-to-bottom invoice row order.
+
+Each product object has these fields:
+- "name" (string): Medicine/product name with strength if present (e.g. "MEFTAL SPAS TAB", "ONDEM MD 4MG TAB").
+- "qty" (number): Invoice quantity column — count of strips/boxes/bottles purchased, NOT total tablet count. Default 0.
+- "rate" (number): Purchase/cost price per pricing unit (strip, box, or bottle as printed). Default 0.
+- "mrp" (number): Maximum Retail Price for the same pricing unit. Default 0.
+- "sellingPrice" (number): Set equal to mrp when MRP is known. Default 0 if MRP missing.
+- "batchNo" (string): Batch/lot number. Default "".
+- "expiry" (string): Expiry in MM/YY format only (e.g. "06/27", "12/28"). Use 2-digit month with leading zero when needed. Default "".
+- "packRaw" (string): Raw PACK/Pkg/UNIT text from invoice (e.g. "30*10", "10'S", "500ML", "1*10"). Default "".
+- "packSize" (number): Tablets/capsules per strip (legacy). Same as tabletsPerStrip when applicable. Default 1.
+- "category" (string): One of: "Tablet", "Capsule", "Syrup", "Injection", "Cream", "Ointment", "Drops", "Powder", "Inhaler", "Gel", "Lotion", "Spray", "Soap", "Surgical", "Device", "Supplement", "Ayurvedic", "General".
+- "pricingUnit" (string): "strip", "box", or "tablet" — which unit MRP/rate refer to.
+- "numBoxes" (number): Boxes or outer packs purchased. For liquids/devices use invoice qty. Default 1.
+- "stripsPerBox" (number): Strips per box. Default 1 for non-strip products.
+- "tabletsPerStrip" (number): Tablets/capsules per strip. Default 1 for bottles/liquids/devices.
+- "confidence" (string): "high" if name, price, and pack are clear; "low" if any critical field was guessed or missing.
+
+PACK parsing: "10'S" → tabletsPerStrip=10; "30*10" → stripsPerBox=30, tabletsPerStrip=10, pricingUnit="box"; "500ML" → single bottle, pricingUnit="box".
+
+Rules:
+- Extract ALL product rows visible in the image. Do not skip any.
+- products array order MUST match invoice top-to-bottom order.
+- Ignore totals, tax lines, invoice numbers.
+- Escape double quotes inside string values as \\".
+- Return ONLY valid JSON, no markdown.`;
 
 const INVOICE_PARSE_PROMPT = `You extract structured data from OCR text of Indian medical/pharmaceutical supplier invoices, purchase bills, or stock sheets.
 
@@ -85,13 +117,42 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const GEMINI_BASE_URL = (
   process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta'
-).replace(/\/$/, '');
+);
+const GEMINI_MAX_OUTPUT_TOKENS = Math.min(
+  32768,
+  Math.max(8192, Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 16384)
+);
+const LOG_PREVIEW_CHARS = 1200;
+
+const GEMINI_BASE_URL_NORMALIZED = GEMINI_BASE_URL.replace(/\/$/, '');
+
+function logInvoiceAi(event: string, details?: Record<string, unknown>): void {
+  if (details) {
+    console.log(`[invoice-ai] ${event}`, details);
+  } else {
+    console.log(`[invoice-ai] ${event}`);
+  }
+}
+
+function previewText(text: string, max = LOG_PREVIEW_CHARS): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}… (${text.length} chars total)`;
+}
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL;
+const DEEPSEEK_IMAGE_MODEL = process.env.DEEPSEEK_IMAGE_MODEL;
+
+console.log('DEEPSEEK_API_KEY', DEEPSEEK_API_KEY);
+console.log('DEEPSEEK_MODEL', DEEPSEEK_MODEL);
+console.log('DEEPSEEK_IMAGE_MODEL', DEEPSEEK_IMAGE_MODEL);
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(
   /\/$/,
   ''
+);
+const DEEPSEEK_MAX_OUTPUT_TOKENS = Math.min(
+  8192,
+  Math.max(4096, Number(process.env.DEEPSEEK_MAX_OUTPUT_TOKENS) || 8192)
 );
 
 const STRIP_CATEGORIES = new Set(['Tablet', 'Capsule']);
@@ -282,14 +343,12 @@ function mapProduct(item: Record<string, unknown>): ParsedInvoiceProduct {
   };
 }
 
-function parseJsonResult(raw: string): ParsedInvoiceResult {
-  const text = cleanModelOutput(raw);
-  const parsed = JSON.parse(text);
-
-  if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.products)) {
+function normalizeParsedJson(parsed: unknown): ParsedInvoiceResult {
+  if (parsed && !Array.isArray(parsed) && Array.isArray((parsed as { products?: unknown }).products)) {
+    const obj = parsed as { dealerName?: unknown; dealer_name?: unknown; products: Record<string, unknown>[] };
     return {
-      dealerName: String(parsed.dealerName ?? parsed.dealer_name ?? '').trim(),
-      products: parsed.products.map((item: Record<string, unknown>) => mapProduct(item)),
+      dealerName: String(obj.dealerName ?? obj.dealer_name ?? '').trim(),
+      products: obj.products.map((item) => mapProduct(item)),
     };
   }
 
@@ -303,11 +362,129 @@ function parseJsonResult(raw: string): ParsedInvoiceResult {
   throw new Error('Expected a JSON object with products array');
 }
 
+/** Pull complete product objects from truncated/malformed JSON. */
+function extractCompleteProductObjects(jsonText: string): Record<string, unknown>[] {
+  const products: Record<string, unknown>[] = [];
+  const key = '"products"';
+  const idx = jsonText.indexOf(key);
+  if (idx < 0) return products;
+
+  let i = jsonText.indexOf('[', idx);
+  if (i < 0) return products;
+  i++;
+
+  while (i < jsonText.length) {
+    while (i < jsonText.length && /[\s,]/.test(jsonText[i])) i++;
+    if (jsonText[i] === ']') break;
+    if (jsonText[i] !== '{') break;
+
+    const start = i;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (; i < jsonText.length; i++) {
+      const c = jsonText[i];
+      if (inString) {
+        if (escape) escape = false;
+        else if (c === '\\') escape = true;
+        else if (c === '"') inString = false;
+        continue;
+      }
+      if (c === '"') {
+        inString = true;
+        continue;
+      }
+      if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          const chunk = jsonText.slice(start, i + 1);
+          try {
+            products.push(JSON.parse(chunk) as Record<string, unknown>);
+          } catch {
+            logInvoiceAi('salvage_skip_object', { chunkPreview: previewText(chunk, 200) });
+          }
+          i++;
+          break;
+        }
+      }
+    }
+    if (depth !== 0) break;
+  }
+
+  return products;
+}
+
+function salvageTruncatedInvoiceJson(text: string): ParsedInvoiceResult | null {
+  const dealerMatch = text.match(/"dealerName"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const dealerName = dealerMatch?.[1]?.replace(/\\"/g, '"') ?? '';
+  const products = extractCompleteProductObjects(text);
+  if (products.length === 0) return null;
+
+  logInvoiceAi('salvage_recovered_products', { count: products.length, dealerName });
+  return {
+    dealerName,
+    products: products.map((item) => mapProduct(item)),
+  };
+}
+
+function parseJsonResult(raw: string, context = 'gemini'): ParsedInvoiceResult {
+  const text = cleanModelOutput(raw);
+  logInvoiceAi('parse_json_start', { context, length: text.length });
+
+  try {
+    const result = normalizeParsedJson(JSON.parse(text));
+    logInvoiceAi('parse_json_ok', { context, productCount: result.products.length });
+    return result;
+  } catch (firstErr) {
+    const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+    logInvoiceAi('parse_json_failed', {
+      context,
+      error: errMsg,
+      preview: previewText(text),
+    });
+
+    const salvaged = salvageTruncatedInvoiceJson(text);
+    if (salvaged) return salvaged;
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch && jsonMatch[0] !== text) {
+      try {
+        const result = normalizeParsedJson(JSON.parse(jsonMatch[0]));
+        logInvoiceAi('parse_json_ok_extracted', { context, productCount: result.products.length });
+        return result;
+      } catch {
+        // fall through
+      }
+    }
+
+    throw new Error(`AI returned invalid JSON (${errMsg}). Try a clearer photo or fewer rows per scan.`);
+  }
+}
+
+type GeminiResponse = {
+  candidates?: {
+    finishReason?: string;
+    content?: { parts?: { text?: string }[] };
+  }[];
+  error?: { message?: string };
+};
+
+function readGeminiResponse(data: GeminiResponse): { text: string; finishReason?: string } {
+  const candidate = data.candidates?.[0];
+  const parts = candidate?.content?.parts ?? [];
+  const text = parts.map((p) => p.text ?? '').join('').trim();
+  return { text, finishReason: candidate?.finishReason };
+}
+
 async function parseInvoiceWithGemini(ocrText: string): Promise<ParsedInvoiceResult> {
   if (!isGeminiConfigured()) throw new Error('AI_NOT_CONFIGURED');
 
-  const url = `${GEMINI_BASE_URL}/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`;
+  const url = `${GEMINI_BASE_URL_NORMALIZED}/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`;
+  logInvoiceAi('gemini_ocr_request', { model: GEMINI_MODEL, ocrChars: ocrText.length });
 
+  const started = Date.now();
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -319,26 +496,148 @@ async function parseInvoiceWithGemini(ocrText: string): Promise<ParsedInvoiceRes
       contents: [{ role: 'user', parts: [{ text: ocrText }] }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 8192,
+        maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
         responseMimeType: 'application/json',
       },
     }),
   });
 
-  const data = await res.json();
+  const data = (await res.json()) as GeminiResponse;
+  logInvoiceAi('gemini_ocr_response', {
+    status: res.status,
+    ms: Date.now() - started,
+    finishReason: data.candidates?.[0]?.finishReason,
+  });
+
   if (!res.ok) {
     const msg = data.error?.message || res.statusText || 'Gemini request failed';
     throw new Error(`Gemini: ${msg}`);
   }
 
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!content?.trim()) throw new Error('Gemini returned empty response');
+  const { text: content, finishReason } = readGeminiResponse(data);
+  if (!content) throw new Error('Gemini returned empty response');
+  if (finishReason === 'MAX_TOKENS') {
+    logInvoiceAi('gemini_ocr_max_tokens', { responseChars: content.length });
+  }
 
-  return parseJsonResult(content);
+  return parseJsonResult(content, 'gemini-ocr');
+}
+
+const ALLOWED_IMAGE_MIME = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
+
+export function isInvoiceImageParseSupported(): boolean {
+  try {
+    const provider = getInvoiceImageAiProvider();
+    return provider === 'google' ? isGeminiConfigured() : isDeepSeekConfigured();
+  } catch {
+    return false;
+  }
+}
+
+function normalizeImageMime(mimeType: string): string {
+  const m = mimeType.toLowerCase().split(';')[0].trim();
+  if (m === 'image/jpg') return 'image/jpeg';
+  return m;
+}
+
+async function parseInvoiceWithGeminiImage(
+  mimeType: string,
+  dataBase64: string
+): Promise<ParsedInvoiceResult> {
+  if (!isGeminiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+
+  const normalizedMime = normalizeImageMime(mimeType);
+  if (!ALLOWED_IMAGE_MIME.has(normalizedMime)) {
+    throw new Error(`Unsupported image type: ${mimeType}`);
+  }
+  const geminiMime = normalizedMime === 'image/jpg' ? 'image/jpeg' : normalizedMime;
+
+  const imageBytes = Math.round((dataBase64.length * 3) / 4);
+  logInvoiceAi('gemini_image_request', {
+    model: GEMINI_MODEL,
+    mimeType: geminiMime,
+    imageBytesApprox: imageBytes,
+    maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+  });
+
+  const url = `${GEMINI_BASE_URL_NORMALIZED}/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`;
+  const started = Date.now();
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': GEMINI_API_KEY!,
+    },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: INVOICE_IMAGE_PARSE_PROMPT }] },
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'Extract all products from this invoice image.' },
+            { inlineData: { mimeType: geminiMime, data: dataBase64 } },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+        responseMimeType: 'application/json',
+      },
+    }),
+  });
+
+  const data = (await res.json()) as GeminiResponse;
+  logInvoiceAi('gemini_image_response', {
+    status: res.status,
+    ms: Date.now() - started,
+    finishReason: data.candidates?.[0]?.finishReason,
+  });
+
+  if (!res.ok) {
+    const msg = data.error?.message || res.statusText || 'Gemini request failed';
+    logInvoiceAi('gemini_image_error', { message: msg });
+    throw new Error(`Gemini: ${msg}`);
+  }
+
+  const { text: content, finishReason } = readGeminiResponse(data);
+  if (!content) {
+    logInvoiceAi('gemini_image_empty', { finishReason });
+    throw new Error('Gemini returned empty response');
+  }
+
+  logInvoiceAi('gemini_image_content', {
+    finishReason,
+    responseChars: content.length,
+    preview: previewText(content),
+  });
+
+  if (finishReason === 'MAX_TOKENS') {
+    logInvoiceAi('gemini_image_max_tokens', {
+      hint: 'Response truncated; salvaging complete product rows if possible',
+    });
+  }
+
+  const result = parseJsonResult(content, 'gemini-image');
+  if (finishReason === 'MAX_TOKENS' && result.products.length > 0) {
+    logInvoiceAi('gemini_image_partial_ok', { productCount: result.products.length });
+  }
+  return result;
 }
 
 async function parseInvoiceWithDeepSeek(ocrText: string): Promise<ParsedInvoiceResult> {
   if (!isDeepSeekConfigured()) throw new Error('AI_NOT_CONFIGURED');
+
+  logInvoiceAi('deepseek_ocr_request', { model: DEEPSEEK_MODEL, ocrChars: ocrText.length });
+  const started = Date.now();
 
   const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -354,11 +653,18 @@ async function parseInvoiceWithDeepSeek(ocrText: string): Promise<ParsedInvoiceR
       ],
       stream: false,
       temperature: 0.1,
-      max_tokens: 8192,
+      max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      response_format: { type: 'json_object' },
     }),
   });
 
   const data = await res.json();
+  logInvoiceAi('deepseek_ocr_response', {
+    status: res.status,
+    ms: Date.now() - started,
+    finishReason: data.choices?.[0]?.finish_reason,
+  });
+
   if (!res.ok) {
     const msg = data.error?.message || res.statusText || 'DeepSeek request failed';
     throw new Error(`DeepSeek: ${msg}`);
@@ -367,7 +673,69 @@ async function parseInvoiceWithDeepSeek(ocrText: string): Promise<ParsedInvoiceR
   const content = data.choices?.[0]?.message?.content;
   if (!content?.trim()) throw new Error('DeepSeek returned empty response');
 
-  return parseJsonResult(content);
+  return parseJsonResult(content, 'deepseek-ocr');
+}
+
+async function parseInvoiceWithDeepSeekImage(
+  mimeType: string,
+  dataBase64: string
+): Promise<ParsedInvoiceResult> {
+  if (!isDeepSeekConfigured()) throw new Error('AI_NOT_CONFIGURED');
+
+  const normalizedMime = normalizeImageMime(mimeType);
+  if (!ALLOWED_IMAGE_MIME.has(normalizedMime)) {
+    throw new Error(`Unsupported image type: ${mimeType}`);
+  }
+  const imageDataUrl = `data:${normalizedMime};base64,${dataBase64}`;
+
+  logInvoiceAi('deepseek_image_start', {
+    model: DEEPSEEK_IMAGE_MODEL,
+    mimeType: normalizedMime,
+    imageBytesApprox: Math.round((dataBase64.length * 3) / 4),
+    note: 'Sending image directly to DeepSeek API (no OCR fallback)',
+  });
+
+  const started = Date.now();
+  const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_IMAGE_MODEL,
+      messages: [
+        { role: 'system', content: INVOICE_IMAGE_PARSE_PROMPT },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Extract all products from this invoice image.' },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+          ],
+        },
+      ],
+      stream: false,
+      temperature: 0.1,
+      max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  const data = await res.json();
+  logInvoiceAi('deepseek_image_response', {
+    status: res.status,
+    ms: Date.now() - started,
+    finishReason: data.choices?.[0]?.finish_reason,
+  });
+
+  if (!res.ok) {
+    const msg = data.error?.message || res.statusText || 'DeepSeek request failed';
+    throw new Error(`DeepSeek image API: ${msg}`);
+  }
+
+  const content = data.choices?.[0]?.message?.content;
+  if (!content?.trim()) throw new Error('DeepSeek returned empty image response');
+  return parseJsonResult(content, 'deepseek-image');
 }
 
 export function isInvoiceParseAiConfigured(): boolean {
@@ -386,4 +754,25 @@ export async function parseInvoiceOcr(ocrText: string): Promise<ParsedInvoiceRes
     return parseInvoiceWithGemini(ocrText);
   }
   return parseInvoiceWithDeepSeek(ocrText);
+}
+
+export async function parseInvoiceImage(
+  mimeType: string,
+  imageBuffer: Buffer
+): Promise<ParsedInvoiceResult> {
+  const provider = getInvoiceImageAiProvider();
+  logInvoiceAi('parse_invoice_image_start', { provider, mimeType, imageBytes: imageBuffer.length });
+
+  const dataBase64 = imageBuffer.toString('base64');
+  const result =
+    provider === 'google'
+      ? await parseInvoiceWithGeminiImage(mimeType, dataBase64)
+      : await parseInvoiceWithDeepSeekImage(mimeType, dataBase64);
+
+  logInvoiceAi('parse_invoice_image_done', {
+    provider,
+    dealerName: result.dealerName,
+    productCount: result.products.length,
+  });
+  return result;
 }

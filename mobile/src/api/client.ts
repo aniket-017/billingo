@@ -208,6 +208,39 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+function guessImageMime(uri: string): string {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  return 'image/jpeg';
+}
+
+async function uploadInvoiceImage<T>(imageUri: string): Promise<T> {
+  const authHeaders = await getAuthHeaders();
+  const name = imageUri.split('/').pop() || 'invoice.jpg';
+  const type = guessImageMime(imageUri);
+
+  const form = new FormData();
+  form.append('image', {
+    uri: imageUri,
+    name,
+    type,
+  } as unknown as Blob);
+
+  const res = await fetch(BASE + '/products/parse-invoice-image', {
+    method: 'POST',
+    headers: { ...authHeaders },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+  return res.json();
+}
+
 export const api = {
   products: {
     list: (q?: string) => request<Product[]>(q ? `/products?q=${encodeURIComponent(q)}` : '/products'),
@@ -225,6 +258,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ ocrText }),
       }),
+    parseInvoiceImage: (imageUri: string) =>
+      uploadInvoiceImage<ParsedInvoiceResult>(imageUri),
     bulkCreate: (products: BulkCreateInput[]) =>
       request<BulkCreateResult>('/products/bulk-create', {
         method: 'POST',

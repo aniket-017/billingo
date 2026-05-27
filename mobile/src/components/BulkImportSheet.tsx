@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -9,21 +10,17 @@ import {
   StyleSheet,
   Text,
   View,
+  type ListRenderItemInfo,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { api, type ParsedInvoiceProduct, type ParsedInvoicePricingUnit } from '@/src/api/client';
 import Button from '@/src/components/Button';
+import BulkImportRowItem, { type EditableRow } from '@/src/components/BulkImportRowItem';
 import Input from '@/src/components/Input';
 import { colors, font, radius, spacing } from '@/src/theme';
-import {
-  countReviewStats,
-  getRowReviewIssues,
-  packSummary,
-  rowNeedsReview,
-  type BulkImportRow,
-} from '@/src/utils/bulkImportReview';
+import { countReviewStats, getRowReviewIssues } from '@/src/utils/bulkImportReview';
 import { extractInvoiceOcrText, type InvoiceOcrResult } from '@/src/utils/extractInvoiceOcrText';
 import { formatExpiryDisplay, formatExpiryInput, parseExpiryToIso } from '@/src/utils/expiry';
 
@@ -36,17 +33,12 @@ try {
   // ML Kit unavailable (Expo Go)
 }
 
-type PricingUnit = ParsedInvoicePricingUnit;
-const UNIT_LABELS: Record<PricingUnit, string> = { strip: 'Strip', box: 'Box', tablet: 'Tablet' };
-
-type EditableRow = BulkImportRow & { reorderLevel: number };
-
 let keyCounter = 0;
 function nextKey(): string {
   return `row_${++keyCounter}`;
 }
 
-function inferPricingUnit(category: string): PricingUnit {
+function inferPricingUnit(category: string): ParsedInvoicePricingUnit {
   const c = category.toLowerCase();
   if (['syrup', 'injection', 'drops', 'device', 'surgical', 'general'].some((x) => c.includes(x))) {
     return 'box';
@@ -84,7 +76,6 @@ type Props = {
 };
 
 type Step = 'capture' | 'processing' | 'review' | 'saving';
-type ReviewFilter = 'all' | 'errors';
 
 export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   const insets = useSafeAreaInsets();
@@ -94,10 +85,22 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   const [dealerName, setDealerName] = useState('');
   const [error, setError] = useState('');
   const [saveResult, setSaveResult] = useState<{ created: number; skipped: number } | null>(null);
-  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('errors');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   const reviewStats = useMemo(() => countReviewStats(rows), [rows]);
+
+  const rowMetaByKey = useMemo(() => {
+    const map = new Map<string, { issues: string[]; needsReview: boolean }>();
+    for (const row of rows) {
+      const issues = getRowReviewIssues(row, rows);
+      map.set(row.key, { issues, needsReview: issues.length > 0 });
+    }
+    return map;
+  }, [rows]);
+
+  const expandedSignature = useMemo(() => [...expandedKeys].sort().join('|'), [expandedKeys]);
+  const expandedKeysRef = useRef(expandedKeys);
+  expandedKeysRef.current = expandedKeys;
 
   const reset = useCallback(() => {
     setStep('capture');
@@ -106,33 +109,61 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     setDealerName('');
     setError('');
     setSaveResult(null);
-    setReviewFilter('errors');
     setExpandedKeys(new Set());
   }, []);
-
-  useEffect(() => {
-    if (step === 'review' && reviewStats.needsReview === 0) {
-      setReviewFilter('all');
-    }
-  }, [step, reviewStats.needsReview]);
-
-  const displayRows = useMemo(() => {
-    if (reviewFilter === 'all') return rows;
-    return rows.filter((r) => rowNeedsReview(r, rows));
-  }, [rows, reviewFilter]);
 
   function handleClose() {
     reset();
     onClose();
   }
 
-  function toggleExpanded(key: string) {
+  const toggleExpanded = useCallback((key: string) => {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+  }, []);
+
+  const updateRow = useCallback((key: string, field: string, value: string | number) => {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  }, []);
+
+  const updateExpiry = useCallback((key: string, raw: string) => {
+    updateRow(key, 'expiry', formatExpiryInput(raw));
+  }, [updateRow]);
+
+  const updateMrp = useCallback((key: string, val: number) => {
+    setRows((prev) =>
+      prev.map((r) => (r.key === key ? { ...r, mrp: val, sellingPrice: val } : r))
+    );
+  }, []);
+
+  const removeRow = useCallback((key: string) => {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+
+  function applyParseResult(parseResult: Awaited<ReturnType<typeof api.products.parseInvoice>>, append: boolean) {
+    if (!parseResult.products || parseResult.products.length === 0) {
+      setError('No products could be detected. Try a clearer photo or add manually.');
+      setStep(append ? 'review' : 'capture');
+      return;
+    }
+
+    if (parseResult.dealerName && (!append || !dealerName.trim())) {
+      setDealerName(parseResult.dealerName);
+    }
+
+    const newRows = parseResult.products.map(mapParsedProduct);
+    setRows((prev) => (append ? [...prev, ...newRows] : newRows));
+    setExpandedKeys(new Set());
+    setStep('review');
   }
 
   async function processOcrImage(uri: string, append: boolean) {
@@ -156,25 +187,21 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
     setProcessingStatus('AI is extracting products...');
     const parseResult = await api.products.parseInvoice(fullText);
-
-    if (!parseResult.products || parseResult.products.length === 0) {
-      setError('No products could be detected. Try a clearer photo or add manually.');
-      setStep(append ? 'review' : 'capture');
-      return;
-    }
-
-    if (parseResult.dealerName && (!append || !dealerName.trim())) {
-      setDealerName(parseResult.dealerName);
-    }
-
-    const newRows = parseResult.products.map(mapParsedProduct);
-    setRows((prev) => (append ? [...prev, ...newRows] : newRows));
-    setReviewFilter('errors');
-    setExpandedKeys(new Set());
-    setStep('review');
+    applyParseResult(parseResult, append);
   }
 
-  async function pickImage(source: 'camera' | 'gallery', append = false) {
+  async function processImageWithAi(uri: string, append: boolean) {
+    setStep('processing');
+    setProcessingStatus('Sending image to AI...');
+    const parseResult = await api.products.parseInvoiceImage(uri);
+    applyParseResult(parseResult, append);
+  }
+
+  async function pickImage(
+    source: 'camera' | 'gallery',
+    append = false,
+    mode: 'ocr' | 'ai' = 'ocr'
+  ) {
     setError('');
     try {
       const opts: ImagePicker.ImagePickerOptions = {
@@ -189,7 +216,11 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
           : await ImagePicker.launchImageLibraryAsync(opts);
 
       if (result.canceled || !result.assets?.[0]?.uri) return;
-      await processOcrImage(result.assets[0].uri, append);
+      if (mode === 'ai') {
+        await processImageWithAi(result.assets[0].uri, append);
+      } else {
+        await processOcrImage(result.assets[0].uri, append);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to process image';
       setError(msg);
@@ -197,26 +228,15 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     }
   }
 
-  function updateRow(key: string, field: string, value: string | number) {
-    setRows((prev) =>
-      prev.map((r) => (r.key === key ? { ...r, [field]: value } : r))
-    );
+  function pickImageForAi(append = false) {
+    Alert.alert('Send Photo to AI', 'Choose image source', [
+      { text: 'Take Photo', onPress: () => pickImage('camera', append, 'ai') },
+      { text: 'Pick from Gallery', onPress: () => pickImage('gallery', append, 'ai') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   }
 
-  function updateExpiry(key: string, raw: string) {
-    updateRow(key, 'expiry', formatExpiryInput(raw));
-  }
-
-  function removeRow(key: string) {
-    setRows((prev) => prev.filter((r) => r.key !== key));
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
-  }
-
-  function addEmptyRow() {
+  const addEmptyRow = useCallback(() => {
     setRows((prev) => [
       ...prev,
       {
@@ -233,13 +253,13 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
         stripsPerBox: 1,
         tabletsPerStrip: 1,
         reorderLevel: 0,
-        pricingUnit: 'strip' as PricingUnit,
+        pricingUnit: 'strip' as ParsedInvoicePricingUnit,
         category: 'General',
         confidence: 'low',
         packRaw: '',
       },
     ]);
-  }
+  }, []);
 
   function isRowValid(r: EditableRow): boolean {
     return Boolean(r.name.trim()) && (r.mrp > 0 || r.rate > 0 || r.sellingPrice > 0);
@@ -296,293 +316,55 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     }
   }
 
-  function renderIssueChips(issues: string[]) {
-    if (issues.length === 0) return null;
-    return (
-      <View style={st.issueRow}>
-        {issues.map((issue) => (
-          <View key={issue} style={st.issueChip}>
-            <Text style={st.issueChipText}>{issue}</Text>
-          </View>
-        ))}
-      </View>
-    );
-  }
+  const renderListItem = useCallback(
+    ({ item, index }: ListRenderItemInfo<EditableRow>) => {
+      const meta = rowMetaByKey.get(item.key) ?? { issues: [], needsReview: false };
+      return (
+        <BulkImportRowItem
+          item={item}
+          index={index}
+          isExpanded={expandedKeysRef.current.has(item.key)}
+          issues={meta.issues}
+          needsReview={meta.needsReview}
+          onToggle={toggleExpanded}
+          onRemove={removeRow}
+          onUpdateRow={updateRow}
+          onUpdateExpiry={updateExpiry}
+          onUpdateMrp={updateMrp}
+        />
+      );
+    },
+    [rowMetaByKey, toggleExpanded, removeRow, updateRow, updateExpiry, updateMrp]
+  );
 
-  function renderCompactCard(item: EditableRow, index: number) {
-    const issues = getRowReviewIssues(item, rows);
-    const sell = item.sellingPrice > 0 ? item.sellingPrice : item.mrp;
-
-    return (
-      <Pressable
-        style={[st.compactCard, issues.length > 0 && st.compactCardWarn]}
-        onPress={() => toggleExpanded(item.key)}
-      >
-        <View style={st.compactHeader}>
-          <View style={st.cardBadge}>
-            <Text style={st.cardBadgeText}>{index + 1}</Text>
-          </View>
-          <View style={st.compactBody}>
-            <Text style={st.compactName} numberOfLines={2}>{item.name || '(unnamed)'}</Text>
-            <Text style={st.compactMeta}>
-              MRP ₹{sell > 0 ? sell.toFixed(2) : '—'}
-              {item.rate > 0 ? ` · Cost ₹${item.rate.toFixed(2)}` : ''}
-              {item.expiry ? ` · Exp ${item.expiry}` : ''}
-            </Text>
-            <Text style={st.compactPack}>{packSummary(item)} · {UNIT_LABELS[item.pricingUnit]}</Text>
-          </View>
-          <Ionicons name="chevron-down" size={20} color={colors.textMuted} />
+  const listHeader = useMemo(
+    () =>
+      rows.length > 0 ? (
+        <View style={st.addPageRow}>
+          <Button
+            title="Add another page"
+            variant="secondary"
+            onPress={() => pickImage('gallery', true)}
+            style={st.addPageBtn}
+          />
         </View>
-        {renderIssueChips(issues)}
+      ) : null,
+    [rows.length]
+  );
+
+  const listFooter = useMemo(
+    () => (
+      <Pressable style={st.addRowBtn} onPress={addEmptyRow}>
+        <Ionicons name="add-circle-outline" size={20} color={colors.primary[600]} />
+        <Text style={st.addRowText}>Add product manually</Text>
       </Pressable>
-    );
-  }
+    ),
+    [addEmptyRow]
+  );
 
-  function renderFullProductCard(item: EditableRow, index: number) {
-    const issues = getRowReviewIssues(item, rows);
-    const totalUnits =
-      Math.max(1, item.numBoxes) * Math.max(1, item.stripsPerBox) * Math.max(1, item.tabletsPerStrip);
-    const effectivePrice = item.sellingPrice > 0 ? item.sellingPrice : item.mrp;
-    const perUnit =
-      totalUnits > 1 && effectivePrice > 0 ? (effectivePrice / totalUnits).toFixed(2) : null;
+  const validCount = useMemo(() => rows.filter(isRowValid).length, [rows]);
 
-    const marginInfo =
-      item.mrp > 0 && item.rate > 0
-        ? { margin: item.mrp - item.rate, pct: ((item.mrp - item.rate) / item.mrp) * 100 }
-        : null;
-
-    const tabs = Math.max(1, item.tabletsPerStrip);
-    const strips = Math.max(1, item.stripsPerBox);
-    const unitMul =
-      item.pricingUnit === 'tablet' ? 1 : item.pricingUnit === 'strip' ? tabs : strips * tabs;
-    const mrpNum = item.mrp || 0;
-    const costNum = item.rate || 0;
-    const sellNum = item.sellingPrice || 0;
-
-    const showCalc = (mrpNum > 0 || costNum > 0) && totalUnits > 1;
-    const perTab = mrpNum > 0 ? mrpNum / unitMul : 0;
-    const costPerTab = costNum > 0 ? costNum / unitMul : 0;
-    const sellPerTab = sellNum > 0 ? sellNum / unitMul : 0;
-    const profitPerTab = sellPerTab - costPerTab;
-
-    const showCollapse =
-      reviewFilter === 'all' && !rowNeedsReview(item, rows) && expandedKeys.has(item.key);
-
-    return (
-      <View style={[st.card, issues.length > 0 && st.cardWarn]}>
-        <View style={st.cardHeader}>
-          <View style={st.cardBadge}>
-            <Text style={st.cardBadgeText}>{index + 1}</Text>
-          </View>
-          <View style={st.cardHeaderActions}>
-            {showCollapse ? (
-              <Pressable onPress={() => toggleExpanded(item.key)} hitSlop={8} style={st.collapseBtn}>
-                <Text style={st.collapseText}>Collapse</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={st.removeBtn} onPress={() => removeRow(item.key)} hitSlop={8}>
-              <Ionicons name="close-circle" size={22} color={colors.danger} />
-            </Pressable>
-          </View>
-        </View>
-
-        {renderIssueChips(issues)}
-
-        <Input
-          label="Product Name"
-          value={item.name}
-          onChangeText={(v) => updateRow(item.key, 'name', v)}
-          placeholder="Product name"
-          multiline
-          numberOfLines={2}
-          textAlignVertical="top"
-          style={st.nameInput}
-        />
-
-        <Text style={st.secLabel}>PACKAGING</Text>
-        <View style={st.pkgLabelRow}>
-          <Text style={st.pkgLabel}>Boxes</Text>
-          <Text style={st.pkgLabel}>Strips in 1 Box</Text>
-          <Text style={st.pkgLabel}>Tablets in 1 Strip</Text>
-        </View>
-        <View style={st.row3}>
-          <View style={st.col}>
-            <Input
-              value={item.numBoxes === 0 ? '' : String(item.numBoxes)}
-              onChangeText={(v) => updateRow(item.key, 'numBoxes', v === '' ? 0 : parseInt(v) || 0)}
-              keyboardType="numeric"
-              placeholder="1"
-            />
-          </View>
-          <View style={st.col}>
-            <Input
-              value={item.stripsPerBox === 0 ? '' : String(item.stripsPerBox)}
-              onChangeText={(v) => updateRow(item.key, 'stripsPerBox', v === '' ? 0 : parseInt(v) || 0)}
-              keyboardType="numeric"
-              placeholder="1"
-            />
-          </View>
-          <View style={st.col}>
-            <Input
-              value={item.tabletsPerStrip === 0 ? '' : String(item.tabletsPerStrip)}
-              onChangeText={(v) =>
-                updateRow(item.key, 'tabletsPerStrip', v === '' ? 0 : parseInt(v) || 0)
-              }
-              keyboardType="numeric"
-              placeholder="1"
-            />
-          </View>
-        </View>
-
-        <Text style={st.secLabel}>PRICING</Text>
-        <View style={st.unitRow}>
-          <Text style={st.unitLabel}>Prices per</Text>
-          <View style={st.unitPills}>
-            {(['strip', 'box', 'tablet'] as PricingUnit[]).map((u) => (
-              <Pressable
-                key={u}
-                onPress={() => updateRow(item.key, 'pricingUnit', u)}
-                style={[st.unitPill, item.pricingUnit === u && st.unitPillActive]}
-              >
-                <Text style={[st.unitPillText, item.pricingUnit === u && st.unitPillTextActive]}>
-                  {UNIT_LABELS[u]}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <View style={st.row3}>
-          <View style={st.col}>
-            <Input
-              label="MRP"
-              value={item.mrp ? String(item.mrp) : ''}
-              onChangeText={(v) => {
-                const val = parseFloat(v) || 0;
-                setRows((prev) =>
-                  prev.map((r) =>
-                    r.key === item.key ? { ...r, mrp: val, sellingPrice: val } : r
-                  )
-                );
-              }}
-              keyboardType="decimal-pad"
-              placeholder="100"
-            />
-          </View>
-          <View style={st.col}>
-            <Input
-              label="Sell"
-              value={item.sellingPrice ? String(item.sellingPrice) : ''}
-              onChangeText={(v) => updateRow(item.key, 'sellingPrice', parseFloat(v) || 0)}
-              keyboardType="decimal-pad"
-              placeholder="95"
-            />
-          </View>
-          <View style={st.col}>
-            <Input
-              label="Cost"
-              value={item.rate ? String(item.rate) : ''}
-              onChangeText={(v) => updateRow(item.key, 'rate', parseFloat(v) || 0)}
-              keyboardType="decimal-pad"
-              placeholder="87.80"
-            />
-          </View>
-        </View>
-
-        {item.sellingPrice > 0 && item.mrp > 0 && item.sellingPrice > item.mrp ? (
-          <View style={st.warnBox}>
-            <Text style={st.warnText}>Selling price is higher than MRP</Text>
-          </View>
-        ) : null}
-
-        {marginInfo ? (
-          <Text style={st.marginText}>
-            Margin: ₹{marginInfo.margin.toFixed(2)} ({marginInfo.pct.toFixed(1)}%)
-          </Text>
-        ) : null}
-
-        {showCalc ? (
-          <View style={st.calcBox}>
-            <Text style={st.calcTitle}>Auto Calculated</Text>
-            <View style={st.calcGrid}>
-              <Text style={st.calcItem}>
-                Total Tablets: <Text style={st.calcBold}>{totalUnits}</Text>
-              </Text>
-              {perTab > 0 ? (
-                <Text style={st.calcItem}>
-                  MRP/Tablet: <Text style={st.calcBold}>₹{perTab.toFixed(2)}</Text>
-                </Text>
-              ) : null}
-              {costPerTab > 0 ? (
-                <Text style={st.calcItem}>
-                  Cost/Tablet: <Text style={st.calcBold}>₹{costPerTab.toFixed(2)}</Text>
-                </Text>
-              ) : null}
-              {profitPerTab > 0 ? (
-                <Text style={[st.calcItem, { color: colors.success }]}>
-                  Profit/Tablet: <Text style={st.calcBold}>₹{profitPerTab.toFixed(2)}</Text>
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        ) : (
-          <Text style={st.totalText}>
-            Total units: {totalUnits}
-            {perUnit ? `  •  ₹${perUnit}/unit` : ''}
-          </Text>
-        )}
-
-        <View style={st.row2}>
-          <View style={st.col}>
-            <Input
-              label="Batch"
-              value={item.batchNo}
-              onChangeText={(v) => updateRow(item.key, 'batchNo', v)}
-              placeholder="Batch"
-            />
-          </View>
-          <View style={st.col}>
-            <Input
-              label="Expiry"
-              value={item.expiry}
-              onChangeText={(v) => updateExpiry(item.key, v)}
-              placeholder="MM/YY"
-              keyboardType="numeric"
-              maxLength={5}
-            />
-          </View>
-        </View>
-
-        <Input
-          label="Category"
-          value={item.category || ''}
-          onChangeText={(v) => updateRow(item.key, 'category', v)}
-          placeholder="e.g. Tablet, Syrup, Capsule"
-        />
-
-        <Input
-          label="Low Stock Alert"
-          value={item.reorderLevel ? String(item.reorderLevel) : ''}
-          onChangeText={(v) => updateRow(item.key, 'reorderLevel', Math.max(0, parseInt(v) || 0))}
-          keyboardType="numeric"
-          placeholder="Alert when stock falls below..."
-        />
-      </View>
-    );
-  }
-
-  function renderListItem({ item }: { item: EditableRow }) {
-    const index = rows.findIndex((r) => r.key === item.key);
-    const needsReview = rowNeedsReview(item, rows);
-    const isExpanded = expandedKeys.has(item.key);
-
-    if (reviewFilter === 'all' && !needsReview && !isExpanded) {
-      return renderCompactCard(item, index);
-    }
-    return renderFullProductCard(item, index);
-  }
-
-  const validCount = rows.filter(isRowValid).length;
+  const keyExtractor = useCallback((item: EditableRow) => item.key, []);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
@@ -616,6 +398,12 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               title="Pick from Gallery"
               variant="secondary"
               onPress={() => pickImage('gallery')}
+              style={st.captureBtn}
+            />
+            <Button
+              title="Smart Import"
+              variant="secondary"
+              onPress={() => pickImageForAi()}
               style={st.captureBtn}
             />
 
@@ -653,29 +441,6 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               </Text>
             </View>
 
-            <View style={st.filterRow}>
-              <Pressable
-                style={[st.filterPill, reviewFilter === 'errors' && st.filterPillActive]}
-                onPress={() => setReviewFilter('errors')}
-              >
-                <Text
-                  style={[st.filterPillText, reviewFilter === 'errors' && st.filterPillTextActive]}
-                >
-                  Needs review
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[st.filterPill, reviewFilter === 'all' && st.filterPillActive]}
-                onPress={() => setReviewFilter('all')}
-              >
-                <Text
-                  style={[st.filterPillText, reviewFilter === 'all' && st.filterPillTextActive]}
-                >
-                  Show all
-                </Text>
-              </Pressable>
-            </View>
-
             <View style={st.dealerRow}>
               <Input
                 label="Dealer Name"
@@ -687,38 +452,19 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
 
             {error ? <Text style={st.errorText}>{error}</Text> : null}
 
-            {reviewFilter === 'errors' && displayRows.length === 0 ? (
-              <View style={st.allClearBox}>
-                <Ionicons name="checkmark-circle" size={48} color={colors.success} />
-                <Text style={st.allClearTitle}>All products look good</Text>
-                <Text style={st.allClearDesc}>Tap Import below, or switch to Show all to review every row.</Text>
-              </View>
-            ) : null}
-
             <FlatList
-              data={displayRows}
+              data={rows}
               renderItem={renderListItem}
-              keyExtractor={(item) => item.key}
+              keyExtractor={keyExtractor}
+              extraData={expandedSignature}
               contentContainerStyle={st.listContent}
               keyboardShouldPersistTaps="handled"
-              ListHeaderComponent={
-                rows.length > 0 ? (
-                  <View style={st.addPageRow}>
-                    <Button
-                      title="Add another page"
-                      variant="secondary"
-                      onPress={() => pickImage('gallery', true)}
-                      style={st.addPageBtn}
-                    />
-                  </View>
-                ) : null
-              }
-              ListFooterComponent={
-                <Pressable style={st.addRowBtn} onPress={addEmptyRow}>
-                  <Ionicons name="add-circle-outline" size={20} color={colors.primary[600]} />
-                  <Text style={st.addRowText}>Add product manually</Text>
-                </Pressable>
-              }
+              initialNumToRender={8}
+              maxToRenderPerBatch={6}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === 'android'}
+              ListHeaderComponent={listHeader}
+              ListFooterComponent={listFooter}
             />
 
             <View style={st.bottomBar}>
@@ -826,182 +572,10 @@ const st = StyleSheet.create({
   statsReady: { fontFamily: font.medium, fontSize: 14, color: colors.success },
   statsDot: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted, marginHorizontal: 6 },
   statsReview: { fontFamily: font.medium, fontSize: 14, color: '#b45309' },
-  filterRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  filterPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: colors.surface[100],
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterPillActive: { backgroundColor: colors.primary[600], borderColor: colors.primary[600] },
-  filterPillText: { fontFamily: font.medium, fontSize: 13, color: colors.textMuted },
-  filterPillTextActive: { color: colors.white },
   dealerRow: { paddingHorizontal: spacing.md, marginBottom: spacing.xs },
   listContent: { paddingHorizontal: spacing.md, paddingBottom: 100 },
   addPageRow: { marginBottom: spacing.sm },
   addPageBtn: { marginBottom: 0 },
-
-  allClearBox: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-  },
-  allClearTitle: { fontFamily: font.semiBold, fontSize: 18, color: colors.text, marginTop: spacing.md },
-  allClearDesc: {
-    fontFamily: font.regular,
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-
-  compactCard: {
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  compactCardWarn: { borderColor: '#fcd34d', backgroundColor: '#fffbeb' },
-  compactHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  compactBody: { flex: 1 },
-  compactName: { fontFamily: font.semiBold, fontSize: 14, color: colors.text },
-  compactMeta: { fontFamily: font.regular, fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  compactPack: { fontFamily: font.medium, fontSize: 11, color: colors.primary[700], marginTop: 2 },
-
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  cardWarn: { borderColor: '#fcd34d' },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  cardHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cardBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary[50],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardBadgeText: { fontFamily: font.semiBold, fontSize: 12, color: colors.primary[700] },
-  removeBtn: { padding: 4 },
-  collapseBtn: { padding: 4 },
-  collapseText: { fontFamily: font.medium, fontSize: 13, color: colors.primary[600] },
-
-  issueRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm },
-  issueChip: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  issueChipText: { fontFamily: font.medium, fontSize: 11, color: '#92400e' },
-
-  nameInput: { minHeight: 48 },
-
-  secLabel: {
-    fontFamily: font.semiBold,
-    fontSize: 11,
-    color: colors.textMuted,
-    letterSpacing: 1,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-  },
-  row3: { flexDirection: 'row', gap: spacing.sm },
-  row2: { flexDirection: 'row', gap: spacing.sm },
-  col: { flex: 1 },
-  pkgLabelRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: 4 },
-  pkgLabel: {
-    flex: 1,
-    fontFamily: font.semiBold,
-    fontSize: 12,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-
-  unitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    marginTop: 2,
-  },
-  unitLabel: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
-  unitPills: { flexDirection: 'row', backgroundColor: colors.surface[100], borderRadius: 8, padding: 2 },
-  unitPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
-  unitPillActive: { backgroundColor: colors.primary[600] },
-  unitPillText: { fontFamily: font.semiBold, fontSize: 11, color: colors.textMuted },
-  unitPillTextActive: { color: colors.white },
-
-  warnBox: {
-    backgroundColor: '#fffbeb',
-    borderRadius: 8,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  warnText: { fontFamily: font.medium, fontSize: 12, color: '#b45309' },
-  marginText: {
-    fontFamily: font.medium,
-    fontSize: 12,
-    color: colors.success,
-    backgroundColor: '#f0fdf4',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 8,
-    marginBottom: spacing.xs,
-    overflow: 'hidden',
-  },
-
-  calcBox: {
-    backgroundColor: colors.surface[50],
-    borderRadius: 10,
-    padding: spacing.sm,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  calcTitle: {
-    fontFamily: font.semiBold,
-    fontSize: 11,
-    color: colors.textMuted,
-    letterSpacing: 0.5,
-    marginBottom: spacing.xs,
-  },
-  calcGrid: { gap: 2 },
-  calcItem: { fontFamily: font.regular, fontSize: 12, color: colors.text },
-  calcBold: { fontFamily: font.semiBold },
-
-  totalText: {
-    fontFamily: font.medium,
-    fontSize: 12,
-    color: colors.primary[700],
-    backgroundColor: colors.primary[50],
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
 
   addRowBtn: {
     flexDirection: 'row',

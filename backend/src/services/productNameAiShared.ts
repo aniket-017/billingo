@@ -15,6 +15,22 @@ export function getProductNameAiProvider(): ProductNameAiProvider {
   );
 }
 
+/** Provider for direct invoice image parsing (defaults to PRODUCT_NAME_AI_PROVIDER). */
+export function getInvoiceImageAiProvider(): ProductNameAiProvider {
+  const raw = (
+    process.env.INVOICE_IMAGE_AI_PROVIDER ||
+    process.env.PRODUCT_NAME_AI_PROVIDER ||
+    'google'
+  )
+    .trim()
+    .toLowerCase();
+  if (raw === 'google' || raw === 'gemini') return 'google';
+  if (raw === 'deepseek') return 'deepseek';
+  throw new Error(
+    `Invalid INVOICE_IMAGE_AI_PROVIDER "${process.env.INVOICE_IMAGE_AI_PROVIDER}". Use "google" or "deepseek".`
+  );
+}
+
 export function cleanModelOutput(raw: string): string {
   let text = raw.trim();
   if (text.startsWith('```')) {

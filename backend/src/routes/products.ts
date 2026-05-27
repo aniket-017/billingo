@@ -1,11 +1,14 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { generateBarcodeImage } from '../services/barcode.js';
 import {
   extractProductNameFromLabelText,
   isProductNameAiConfigured,
 } from '../services/productNameAi.js';
 import {
+  isInvoiceImageParseSupported,
   isInvoiceParseAiConfigured,
+  parseInvoiceImage,
   parseInvoiceOcr,
 } from '../services/invoiceParseAi.js';
 import { applyMovement } from '../services/stock.js';
@@ -13,6 +16,23 @@ import { authMiddleware, tenantMiddleware } from '../middleware/auth.js';
 import { getTenantDb } from '../middleware/tenant.js';
 
 const MAX_OCR_TEXT_LENGTH = 8000;
+const MAX_INVOICE_IMAGE_BYTES = 10 * 1024 * 1024;
+
+const invoiceImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_INVOICE_IMAGE_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const mime = (file.mimetype || '').toLowerCase();
+    if (
+      mime.startsWith('image/') ||
+      mime === 'application/octet-stream'
+    ) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only image files are allowed'));
+  },
+});
 
 const router = Router();
 
@@ -112,6 +132,84 @@ router.post('/parse-invoice', async (req, res) => {
       return res.status(503).json({ error: 'Invoice parsing AI is not configured' });
     }
     res.status(502).json({ error: msg || 'Invoice parsing failed' });
+  }
+});
+
+router.post('/parse-invoice-image', (req, res, next) => {
+  invoiceImageUpload.single('image')(req, res, (err) => {
+    if (err) {
+      console.error('[parse-invoice-image] upload error', err);
+      const msg =
+        err instanceof Error && 'code' in err && err.code === 'LIMIT_FILE_SIZE'
+          ? 'Image is too large (max 10MB)'
+          : err instanceof Error
+            ? err.message
+            : 'Upload failed';
+      return res.status(400).json({ error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const started = Date.now();
+  const user = (req as typeof req & { user?: { email?: string } }).user;
+  console.log('[parse-invoice-image] request', {
+    user: user?.email ?? 'unknown',
+    contentType: req.headers['content-type'],
+  });
+
+  try {
+    if (!isInvoiceImageParseSupported()) {
+      console.warn('[parse-invoice-image] not configured (needs google+GEMINI_API_KEY or deepseek+DEEPSEEK_API_KEY)');
+      return res.status(503).json({
+        error: 'Invoice image parsing is not configured for the active AI provider',
+      });
+    }
+
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      console.warn('[parse-invoice-image] no file in multipart body');
+      return res.status(400).json({ error: 'image file is required' });
+    }
+
+    const mimeType =
+      file.mimetype && file.mimetype !== 'application/octet-stream'
+        ? file.mimetype
+        : 'image/jpeg';
+
+    console.log('[parse-invoice-image] file received', {
+      originalName: file.originalname,
+      mimeType,
+      sizeBytes: file.size,
+    });
+
+    const result = await parseInvoiceImage(mimeType, file.buffer);
+
+    console.log('[parse-invoice-image] success', {
+      ms: Date.now() - started,
+      dealerName: result.dealerName,
+      productCount: result.products.length,
+    });
+    res.json(result);
+  } catch (e) {
+    const msg = (e as Error).message;
+    console.error('[parse-invoice-image] failed', {
+      ms: Date.now() - started,
+      error: msg,
+      stack: e instanceof Error ? e.stack : undefined,
+    });
+
+    if (msg === 'IMAGE_PARSE_NOT_SUPPORTED_FOR_PROVIDER') {
+      return res.status(503).json({
+        error: 'Invoice image parsing is not configured for the active AI provider',
+      });
+    }
+    if (msg === 'AI_NOT_CONFIGURED' || msg === 'GEMINI_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'Invoice parsing AI is not configured' });
+    }
+    if (msg.includes('Unsupported image type')) {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(502).json({ error: msg || 'Invoice image parsing failed' });
   }
 });
 
