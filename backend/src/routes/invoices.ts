@@ -55,6 +55,41 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/stock-in', async (req, res) => {
+  try {
+    const page = Number(req.query.page ?? '1');
+    const limit = Number(req.query.limit ?? '20');
+    const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
+    const pageSize = Number.isFinite(limit) && limit > 0 && limit <= 200 ? limit : 20;
+
+    const result = await getTenantDb(req).listStockInInvoices({
+      page: pageNumber,
+      pageSize,
+    });
+    res.json({
+      items: result.items,
+      total: result.total,
+      page: pageNumber,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
+    });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+router.get('/stock-in/:id', async (req, res) => {
+  try {
+    const db = getTenantDb(req);
+    const invoice = await db.getStockInInvoice(req.params.id);
+    if (!invoice) return res.status(404).json({ error: 'Stock-in invoice not found' });
+    const movements = await db.listMovementsByStockInInvoice(req.params.id);
+    res.json({ ...invoice, movements });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const invoice = await getTenantDb(req).getInvoice(req.params.id);

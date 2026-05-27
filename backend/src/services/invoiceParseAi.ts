@@ -25,14 +25,39 @@ export type ParsedInvoiceProduct = {
 
 export type ParsedInvoiceResult = {
   dealerName: string;
+  invoiceHeader?: ParsedInvoiceHeader;
   products: ParsedInvoiceProduct[];
+};
+
+export type ParsedInvoiceHeader = {
+  supplierName?: string;
+  supplierGstNumber?: string;
+  supplierDrugLicenseNumber?: string;
+  supplierAddress?: string;
+  supplierMobile?: string;
+  supplierEmail?: string;
+  supplierStateCode?: string;
+  supplierPanNumber?: string;
+  supplierCode?: string;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  dueDate?: string;
+  invoiceTotal?: number | null;
+  gstTotal?: number | null;
+  discount?: number | null;
+  roundOff?: number | null;
+  paymentType?: string;
+  supplierGst?: string;
+  placeOfSupply?: string;
 };
 
 const INVOICE_IMAGE_PARSE_PROMPT = `You extract structured data from a photo of an Indian medical/pharmaceutical supplier invoice, purchase bill, or stock sheet.
 
-Read the full product table directly from the image (no OCR step). Return a JSON object with two fields:
+Read the full product table directly from the image (no OCR step). Return a JSON object with three fields:
 1. "dealerName" (string): The supplier/dealer/distributor name from the invoice header. Default "" if not found.
-2. "products" (array): An array of product objects in exact top-to-bottom invoice row order.
+2. "invoiceHeader" (object): Optional invoice/supplier metadata fields if present in the image:
+   supplierName, supplierGstNumber, supplierDrugLicenseNumber, supplierAddress, supplierMobile, supplierEmail, supplierStateCode, supplierPanNumber, supplierCode, invoiceNumber, invoiceDate, dueDate, invoiceTotal, gstTotal, discount, roundOff, paymentType, supplierGst, placeOfSupply.
+3. "products" (array): An array of product objects in exact top-to-bottom invoice row order.
 
 Each product object has these fields:
 - "name" (string): Medicine/product name with strength if present (e.g. "MEFTAL SPAS TAB", "ONDEM MD 4MG TAB").
@@ -62,9 +87,11 @@ Rules:
 
 const INVOICE_PARSE_PROMPT = `You extract structured data from OCR text of Indian medical/pharmaceutical supplier invoices, purchase bills, or stock sheets.
 
-Return a JSON object with two fields:
+Return a JSON object with three fields:
 1. "dealerName" (string): The supplier/dealer/distributor name from the invoice header. Default "" if not found.
-2. "products" (array): An array of product objects in exact top-to-bottom invoice row order.
+2. "invoiceHeader" (object): Optional invoice/supplier metadata fields if present in OCR:
+   supplierName, supplierGstNumber, supplierDrugLicenseNumber, supplierAddress, supplierMobile, supplierEmail, supplierStateCode, supplierPanNumber, supplierCode, invoiceNumber, invoiceDate, dueDate, invoiceTotal, gstTotal, discount, roundOff, paymentType, supplierGst, placeOfSupply.
+3. "products" (array): An array of product objects in exact top-to-bottom invoice row order.
 
 Each product object has these fields:
 - "name" (string): Medicine/product name with strength if present (e.g. "MEFTAL SPAS TAB", "ONDEM MD 4MG TAB").
@@ -343,11 +370,57 @@ function mapProduct(item: Record<string, unknown>): ParsedInvoiceProduct {
   };
 }
 
+function normalizeInvoiceHeader(raw: unknown): ParsedInvoiceHeader | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  const asText = (v: unknown): string | undefined => {
+    const s = String(v ?? '').trim();
+    return s ? s : undefined;
+  };
+  const asNum = (v: unknown): number | null | undefined => {
+    if (v == null || v === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const header: ParsedInvoiceHeader = {
+    supplierName: asText(obj.supplierName ?? obj.supplier_name),
+    supplierGstNumber: asText(obj.supplierGstNumber ?? obj.supplier_gst_number),
+    supplierDrugLicenseNumber: asText(
+      obj.supplierDrugLicenseNumber ?? obj.supplier_drug_license_number
+    ),
+    supplierAddress: asText(obj.supplierAddress ?? obj.supplier_address),
+    supplierMobile: asText(obj.supplierMobile ?? obj.supplier_mobile),
+    supplierEmail: asText(obj.supplierEmail ?? obj.supplier_email),
+    supplierStateCode: asText(obj.supplierStateCode ?? obj.supplier_state_code),
+    supplierPanNumber: asText(obj.supplierPanNumber ?? obj.supplier_pan_number),
+    supplierCode: asText(obj.supplierCode ?? obj.supplier_code),
+    invoiceNumber: asText(obj.invoiceNumber ?? obj.invoice_number),
+    invoiceDate: asText(obj.invoiceDate ?? obj.invoice_date),
+    dueDate: asText(obj.dueDate ?? obj.due_date),
+    invoiceTotal: asNum(obj.invoiceTotal ?? obj.invoice_total),
+    gstTotal: asNum(obj.gstTotal ?? obj.gst_total),
+    discount: asNum(obj.discount),
+    roundOff: asNum(obj.roundOff ?? obj.round_off),
+    paymentType: asText(obj.paymentType ?? obj.payment_type),
+    supplierGst: asText(obj.supplierGst ?? obj.supplier_gst),
+    placeOfSupply: asText(obj.placeOfSupply ?? obj.place_of_supply),
+  };
+  const hasAny = Object.values(header).some((v) => v != null && v !== '');
+  return hasAny ? header : undefined;
+}
+
 function normalizeParsedJson(parsed: unknown): ParsedInvoiceResult {
   if (parsed && !Array.isArray(parsed) && Array.isArray((parsed as { products?: unknown }).products)) {
-    const obj = parsed as { dealerName?: unknown; dealer_name?: unknown; products: Record<string, unknown>[] };
+    const obj = parsed as {
+      dealerName?: unknown;
+      dealer_name?: unknown;
+      invoiceHeader?: unknown;
+      invoice_header?: unknown;
+      products: Record<string, unknown>[];
+    };
     return {
       dealerName: String(obj.dealerName ?? obj.dealer_name ?? '').trim(),
+      invoiceHeader: normalizeInvoiceHeader(obj.invoiceHeader ?? obj.invoice_header ?? parsed),
       products: obj.products.map((item) => mapProduct(item)),
     };
   }
@@ -355,6 +428,7 @@ function normalizeParsedJson(parsed: unknown): ParsedInvoiceResult {
   if (Array.isArray(parsed)) {
     return {
       dealerName: '',
+      invoiceHeader: undefined,
       products: parsed.map((item: Record<string, unknown>) => mapProduct(item)),
     };
   }
@@ -425,6 +499,7 @@ function salvageTruncatedInvoiceJson(text: string): ParsedInvoiceResult | null {
   logInvoiceAi('salvage_recovered_products', { count: products.length, dealerName });
   return {
     dealerName,
+    invoiceHeader: undefined,
     products: products.map((item) => mapProduct(item)),
   };
 }

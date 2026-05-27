@@ -8,6 +8,7 @@ import {
 import {
   isInvoiceImageParseSupported,
   isInvoiceParseAiConfigured,
+  type ParsedInvoiceHeader,
   parseInvoiceImage,
   parseInvoiceOcr,
 } from '../services/invoiceParseAi.js';
@@ -115,6 +116,67 @@ type ImportItemBody = {
   dealerName?: string;
   notes?: string;
 };
+
+type BulkInvoiceHeaderBody = ParsedInvoiceHeader;
+
+function normalizeHeaderMergeKey(header?: BulkInvoiceHeaderBody): {
+  invoiceNumber: string;
+  supplierGst: string;
+} {
+  return {
+    invoiceNumber: String(header?.invoiceNumber ?? '').trim().toUpperCase(),
+    supplierGst: String(header?.supplierGst ?? header?.supplierGstNumber ?? '')
+      .trim()
+      .toUpperCase(),
+  };
+}
+
+function mergeNonEmptyHeader(
+  current: Record<string, unknown>,
+  incoming?: BulkInvoiceHeaderBody
+): Record<string, unknown> {
+  if (!incoming) return current;
+  const setText = (v?: string): string | undefined => {
+    const s = String(v ?? '').trim();
+    return s ? s : undefined;
+  };
+  return {
+    ...current,
+    ...(setText(incoming.supplierName) && { supplierName: setText(incoming.supplierName)! }),
+    ...(setText(incoming.supplierGstNumber) && {
+      supplierGstNumber: setText(incoming.supplierGstNumber)!,
+    }),
+    ...(setText(incoming.supplierDrugLicenseNumber) && {
+      supplierDrugLicenseNumber: setText(incoming.supplierDrugLicenseNumber)!,
+    }),
+    ...(setText(incoming.supplierAddress) && { supplierAddress: setText(incoming.supplierAddress)! }),
+    ...(setText(incoming.supplierMobile) && { supplierMobile: setText(incoming.supplierMobile)! }),
+    ...(setText(incoming.supplierEmail) && { supplierEmail: setText(incoming.supplierEmail)! }),
+    ...(setText(incoming.supplierStateCode) && {
+      supplierStateCode: setText(incoming.supplierStateCode)!,
+    }),
+    ...(setText(incoming.supplierPanNumber) && { supplierPanNumber: setText(incoming.supplierPanNumber)! }),
+    ...(setText(incoming.supplierCode) && { supplierCode: setText(incoming.supplierCode)! }),
+    ...(setText(incoming.invoiceNumber) && { invoiceNumber: setText(incoming.invoiceNumber)! }),
+    ...(setText(incoming.invoiceDate) && { invoiceDate: setText(incoming.invoiceDate)! }),
+    ...(setText(incoming.dueDate) && { dueDate: setText(incoming.dueDate)! }),
+    ...(incoming.invoiceTotal != null && Number.isFinite(Number(incoming.invoiceTotal))
+      ? { invoiceTotal: Number(incoming.invoiceTotal) }
+      : {}),
+    ...(incoming.gstTotal != null && Number.isFinite(Number(incoming.gstTotal))
+      ? { gstTotal: Number(incoming.gstTotal) }
+      : {}),
+    ...(incoming.discount != null && Number.isFinite(Number(incoming.discount))
+      ? { discount: Number(incoming.discount) }
+      : {}),
+    ...(incoming.roundOff != null && Number.isFinite(Number(incoming.roundOff))
+      ? { roundOff: Number(incoming.roundOff) }
+      : {}),
+    ...(setText(incoming.paymentType) && { paymentType: setText(incoming.paymentType)! }),
+    ...(setText(incoming.supplierGst) && { supplierGst: setText(incoming.supplierGst)! }),
+    ...(setText(incoming.placeOfSupply) && { placeOfSupply: setText(incoming.placeOfSupply)! }),
+  };
+}
 
 async function syncProductFieldsFromImport(
   tenant: ReturnType<typeof getTenantDb>,
@@ -351,6 +413,7 @@ router.post('/bulk-import', async (req, res) => {
   try {
     const tenant = getTenantDb(req);
     const raw = req.body?.products;
+    const invoiceHeader = req.body?.invoiceHeader as BulkInvoiceHeaderBody | undefined;
     if (!Array.isArray(raw) || raw.length === 0) {
       return res.status(400).json({ error: 'products array is required' });
     }
@@ -358,6 +421,41 @@ router.post('/bulk-import', async (req, res) => {
     const schemaName = getTenant(req).schemaName;
     const catalog = await tenant.listProductsForMatch();
     const user = getUser(req as { user?: AuthPayload });
+    const mergeKey = normalizeHeaderMergeKey(invoiceHeader);
+    let stockInInvoiceId: string | null = null;
+    if (mergeKey.invoiceNumber && mergeKey.supplierGst) {
+      const existing = await tenant.findStockInInvoiceByNumberAndSupplierGst(
+        mergeKey.invoiceNumber,
+        mergeKey.supplierGst
+      );
+      if (existing) {
+        stockInInvoiceId = existing.id;
+        await tenant.mergeStockInInvoice(
+          existing.id,
+          mergeNonEmptyHeader({}, {
+            ...invoiceHeader,
+            invoiceNumber: mergeKey.invoiceNumber,
+            supplierGst: mergeKey.supplierGst,
+          })
+        );
+      }
+    }
+    if (!stockInInvoiceId && invoiceHeader) {
+      const createdHeader = await tenant.createStockInInvoice(
+        mergeNonEmptyHeader(
+          {
+            createdByEmail: user?.email ?? '',
+            createdByName: user?.name ?? '',
+          },
+          {
+            ...invoiceHeader,
+            invoiceNumber: mergeKey.invoiceNumber || invoiceHeader.invoiceNumber,
+            supplierGst: mergeKey.supplierGst || invoiceHeader.supplierGst,
+          }
+        )
+      );
+      stockInInvoiceId = createdHeader.id;
+    }
 
     const stockedIn: {
       product: Awaited<ReturnType<typeof tenant.getProduct>>;
@@ -399,6 +497,7 @@ router.post('/bulk-import', async (req, res) => {
             type: 'STOCK_IN',
             quantity: qty,
             notes: item.notes?.trim() || 'Stock in (bulk import)',
+            stockInInvoiceId,
             user,
             ...openingMovementExtras(item),
           });
@@ -455,6 +554,7 @@ router.post('/bulk-import', async (req, res) => {
             type: 'OPENING',
             quantity: qty,
             notes: 'Opening stock (bulk import)',
+            stockInInvoiceId,
             user,
             ...openingMovementExtras(item),
           });
@@ -473,7 +573,10 @@ router.post('/bulk-import', async (req, res) => {
       }
     }
 
-    res.status(201).json({ stockedIn, created, skipped });
+    const stockInInvoice = stockInInvoiceId
+      ? await tenant.getStockInInvoice(stockInInvoiceId)
+      : null;
+    res.status(201).json({ stockedIn, created, skipped, stockInInvoice });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }

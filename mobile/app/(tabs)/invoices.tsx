@@ -3,10 +3,56 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api, type Invoice, type WhatsAppDeliveryStatus } from '@/src/api/client';
+import {
+  api,
+  type Invoice,
+  type StockInInvoice,
+  type StockMovement,
+  type WhatsAppDeliveryStatus,
+} from '@/src/api/client';
 import Screen from '@/src/components/Screen';
 import { colors, font, radius, spacing } from '@/src/theme';
+import { formatExpiryDisplay } from '@/src/utils/expiry';
 import { daysAgoIsoDate, formatCurrency, formatDate, todayIsoDate } from '@/src/utils/format';
+
+function movementProductName(m: StockMovement): string {
+  if (m.product?.name) return m.product.name;
+  if (typeof m.productId === 'object' && m.productId && 'name' in m.productId) {
+    return m.productId.name;
+  }
+  return 'Product';
+}
+
+function StockInLineItem({ m }: { m: StockMovement }) {
+  const meta: string[] = [];
+  if (m.batchNo) meta.push(`Batch ${m.batchNo}`);
+  if (m.expiryDate) meta.push(`Exp ${formatExpiryDisplay(m.expiryDate)}`);
+  if (m.dealerName) meta.push(m.dealerName);
+  const prices: string[] = [];
+  if ((m.sellingPrice ?? 0) > 0) prices.push(`Sell ${formatCurrency(m.sellingPrice!)}`);
+  if ((m.mrp ?? 0) > 0) prices.push(`MRP ${formatCurrency(m.mrp!)}`);
+  if ((m.costPrice ?? 0) > 0) prices.push(`Cost ${formatCurrency(m.costPrice!)}`);
+  const hasPackaging =
+    (m.numBoxes ?? 1) > 1 || (m.stripsPerBox ?? 1) > 1 || (m.tabletsPerStrip ?? 1) > 1;
+
+  return (
+    <View style={st.itemRow}>
+      <View style={st.itemTop}>
+        <Text style={st.itemName}>{movementProductName(m)}</Text>
+        <Text style={st.itemAmount}>+{m.quantity}</Text>
+      </View>
+      {hasPackaging ? (
+        <Text style={st.itemMeta}>
+          {m.numBoxes ?? 1} Box × {m.stripsPerBox ?? 1} Strip × {m.tabletsPerStrip ?? 1} Tab
+        </Text>
+      ) : null}
+      {meta.length > 0 ? <Text style={st.itemMeta}>{meta.join(' · ')}</Text> : null}
+      {prices.length > 0 ? <Text style={st.itemMeta}>{prices.join(' · ')}</Text> : null}
+      {m.notes ? <Text style={st.itemNotes}>{m.notes}</Text> : null}
+      <Text style={st.itemType}>{m.type === 'OPENING' ? 'Opening stock' : 'Stock in'}</Text>
+    </View>
+  );
+}
 
 function whatsappBadge(status?: WhatsAppDeliveryStatus | null) {
   if (!status) return null;
@@ -44,6 +90,8 @@ export default function InvoicesScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [whatsAppResult, setWhatsAppResult] = useState<string | null>(null);
+  const [stockInInvoices, setStockInInvoices] = useState<StockInInvoice[]>([]);
+  const [selectedStockIn, setSelectedStockIn] = useState<StockInInvoice | null>(null);
 
   const load = useCallback(async (p = 1, append = false) => {
     if (p === 1) setLoading(true);
@@ -53,6 +101,10 @@ export default function InvoicesScreen() {
       const to = todayIsoDate();
       const data = await api.invoices.list(from, to, p, PAGE_SIZE);
       setInvoices((prev) => append ? [...prev, ...data.items] : data.items);
+      if (p === 1) {
+        const stockData = await api.invoices.listStockIn(1, 20);
+        setStockInInvoices(stockData.items);
+      }
       setPage(data.page);
       setTotalPages(data.totalPages);
     } catch {
@@ -111,6 +163,16 @@ export default function InvoicesScreen() {
     }
   }
 
+  async function openStockInDetail(inv: StockInInvoice) {
+    setSelectedStockIn(inv);
+    try {
+      const full = await api.invoices.getStockIn(inv.id);
+      setSelectedStockIn(full);
+    } catch {
+      // keep list version
+    }
+  }
+
   return (
     <Screen refreshing={loading} onRefresh={() => load(1)}>
       <Text style={st.title}>Invoices</Text>
@@ -146,6 +208,28 @@ export default function InvoicesScreen() {
 
       {!loading && invoices.length === 0 ? (
         <Text style={st.empty}>No invoices in the last 30 days</Text>
+      ) : null}
+
+      {stockInInvoices.length > 0 ? (
+        <>
+          <Text style={st.sectionTitle}>Stock-In Invoices</Text>
+          {stockInInvoices.map((inv) => (
+            <Pressable key={inv.id} onPress={() => openStockInDetail(inv)}>
+              <View style={st.card}>
+                <View style={st.rowTop}>
+                  <Text style={st.number}>{inv.invoiceNumber || 'Stock-In Invoice'}</Text>
+                  <Text style={st.total}>{formatCurrency(inv.invoiceTotal ?? 0)}</Text>
+                </View>
+                <View style={st.rowBottom}>
+                  <Text style={st.meta}>
+                    {inv.invoiceDate ? formatDate(inv.invoiceDate) : 'No date'}
+                    {inv.supplierName ? ` · ${inv.supplierName}` : ''}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </>
       ) : null}
 
       <Modal
@@ -211,6 +295,65 @@ export default function InvoicesScreen() {
           ) : null}
         </View>
       </Modal>
+
+      <Modal
+        visible={!!selectedStockIn}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setSelectedStockIn(null)}>
+        <Pressable style={st.modalBackdrop} onPress={() => setSelectedStockIn(null)} />
+        <View style={[st.modalSheet, { paddingBottom: spacing.xl + insets.bottom }]}>
+          {selectedStockIn ? (
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={st.modalTitle}>{selectedStockIn.invoiceNumber || 'Stock-In Invoice'}</Text>
+              <Text style={st.modalMeta}>
+                {selectedStockIn.invoiceDate ? formatDate(selectedStockIn.invoiceDate) : 'No date'}
+              </Text>
+              {selectedStockIn.supplierName ? (
+                <Text style={st.customerName}>{selectedStockIn.supplierName}</Text>
+              ) : null}
+
+              {[
+                ['Supplier GST', selectedStockIn.supplierGst || selectedStockIn.supplierGstNumber],
+                ['Drug License', selectedStockIn.supplierDrugLicenseNumber],
+                ['Address', selectedStockIn.supplierAddress],
+                ['Mobile', selectedStockIn.supplierMobile],
+                ['Email', selectedStockIn.supplierEmail],
+                ['State Code', selectedStockIn.supplierStateCode],
+                ['PAN', selectedStockIn.supplierPanNumber],
+                ['Supplier Code', selectedStockIn.supplierCode],
+                ['Due Date', selectedStockIn.dueDate ? formatDate(selectedStockIn.dueDate) : ''],
+                ['GST Total', selectedStockIn.gstTotal != null ? formatCurrency(selectedStockIn.gstTotal) : ''],
+                ['Discount', selectedStockIn.discount != null ? formatCurrency(selectedStockIn.discount) : ''],
+                ['Round Off', selectedStockIn.roundOff != null ? formatCurrency(selectedStockIn.roundOff) : ''],
+                ['Payment', selectedStockIn.paymentType],
+                ['Place Of Supply', selectedStockIn.placeOfSupply],
+              ]
+                .filter(([, value]) => String(value ?? '').trim().length > 0)
+                .map(([label, value]) => (
+                  <View key={label} style={st.detailRow}>
+                    <Text style={st.detailLabel}>{label}</Text>
+                    <Text style={st.detailValue}>{String(value)}</Text>
+                  </View>
+                ))}
+
+              {(selectedStockIn.movements ?? []).length > 0 ? (
+                <>
+                  <Text style={st.productsSectionTitle}>
+                    Products stocked in ({selectedStockIn.movements!.length})
+                  </Text>
+                  {selectedStockIn.movements!.map((m) => (
+                    <StockInLineItem key={m.id} m={m} />
+                  ))}
+                </>
+              ) : (
+                <Text style={st.loadingText}>No product lines linked to this invoice</Text>
+              )}
+            </ScrollView>
+          ) : null}
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -218,6 +361,13 @@ export default function InvoicesScreen() {
 const st = StyleSheet.create({
   title: { fontFamily: font.bold, fontSize: 26, color: colors.text },
   subtitle: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted, marginBottom: spacing.md },
+  sectionTitle: {
+    fontFamily: font.bold,
+    fontSize: 18,
+    color: colors.text,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
   card: {
     backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm,
     borderWidth: 1, borderColor: colors.surface[200], shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
@@ -244,7 +394,23 @@ const st = StyleSheet.create({
   itemTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   itemName: { fontFamily: font.semiBold, fontSize: 15, color: colors.text, flex: 1, marginRight: spacing.sm },
   itemMeta: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  itemNotes: { fontFamily: font.regular, fontSize: 12, color: colors.textMuted, marginTop: 2, fontStyle: 'italic' },
+  itemType: { fontFamily: font.medium, fontSize: 11, color: colors.primary[600], marginTop: 4 },
   itemAmount: { fontFamily: font.bold, fontSize: 15, color: colors.text },
+  productsSectionTitle: {
+    fontFamily: font.bold,
+    fontSize: 15,
+    color: colors.text,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  detailRow: {
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  detailLabel: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  detailValue: { fontFamily: font.regular, fontSize: 14, color: colors.text },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 2, borderTopColor: colors.surface[200] },
   totalLabel: { fontFamily: font.semiBold, fontSize: 16, color: colors.textMuted },
   totalValue: { fontFamily: font.bold, fontSize: 22, color: colors.text },

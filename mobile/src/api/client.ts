@@ -87,7 +87,30 @@ export type ParsedInvoiceProduct = {
 
 export type ParsedInvoiceResult = {
   dealerName: string;
+  invoiceHeader?: StockInInvoiceHeader;
   products: ParsedInvoiceProduct[];
+};
+
+export type StockInInvoiceHeader = {
+  supplierName?: string;
+  supplierGstNumber?: string;
+  supplierDrugLicenseNumber?: string;
+  supplierAddress?: string;
+  supplierMobile?: string;
+  supplierEmail?: string;
+  supplierStateCode?: string;
+  supplierPanNumber?: string;
+  supplierCode?: string;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  dueDate?: string;
+  invoiceTotal?: number | null;
+  gstTotal?: number | null;
+  discount?: number | null;
+  roundOff?: number | null;
+  paymentType?: string;
+  supplierGst?: string;
+  placeOfSupply?: string;
 };
 
 export type BulkCreateInput = {
@@ -139,15 +162,27 @@ export type BulkImportInput = BulkCreateInput & {
   notes?: string;
 };
 
+export type StockInInvoice = StockInInvoiceHeader & {
+  id: string;
+  notes?: string;
+  createdByEmail?: string;
+  createdByName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  movements?: StockMovement[];
+};
+
 export type BulkImportResult = {
   stockedIn: { product: Product; movement: { id: string }; invoiceName: string }[];
   created: Product[];
   skipped: { name: string; reason: string }[];
+  stockInInvoice?: StockInInvoice | null;
 };
 
 export type StockMovement = {
   id: string;
   productId: { id: string; name: string; barcode: string; unit?: string } | string;
+  product?: { id: string; name: string; barcode: string; unit?: string };
   type: string;
   quantity: number;
   balanceAfter: number;
@@ -156,6 +191,8 @@ export type StockMovement = {
   referenceId?: string | null;
   referenceLabel: string;
   notes: string;
+  stockInInvoiceId?: string | null;
+  stockInInvoice?: StockInInvoice | null;
   dealerName?: string;
   batchNo?: string;
   expiryDate?: string | null;
@@ -304,10 +341,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ name }),
       }),
-    bulkImport: (products: BulkImportInput[]) =>
+    bulkImport: (payload: { products: BulkImportInput[]; invoiceHeader?: StockInInvoiceHeader }) =>
       request<BulkImportResult>('/products/bulk-import', {
         method: 'POST',
-        body: JSON.stringify({ products }),
+        body: JSON.stringify(payload),
       }),
     create: (body: {
       barcode: string;
@@ -437,6 +474,11 @@ export const api = {
     }) => request<InvoiceWithWhatsAppSend>('/invoices', { method: 'POST', body: JSON.stringify(body) }),
     resendWhatsApp: (id: string) =>
       request<{ whatsappSend: WhatsAppSendResult }>(`/invoices/${id}/resend-whatsapp`, { method: 'POST' }),
+    listStockIn: (page = 1, pageSize = 20) =>
+      request<{ items: StockInInvoice[]; total: number; page: number; pageSize: number; totalPages: number }>(
+        `/invoices/stock-in?page=${page}&limit=${pageSize}`
+      ),
+    getStockIn: (id: string) => request<StockInInvoice>(`/invoices/stock-in/${id}`),
   },
   reports: {
     sales: (from?: string, to?: string) =>

@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".stock_movements (
   reference_id UUID,
   reference_label TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
+  stock_in_invoice_id UUID,
   dealer_name TEXT NOT NULL DEFAULT '',
   batch_no TEXT NOT NULL DEFAULT '',
   expiry_date DATE,
@@ -118,3 +119,37 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".stock_movements (
 CREATE INDEX IF NOT EXISTS idx_stock_movements_product_date ON "__SCHEMA__".stock_movements (product_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON "__SCHEMA__".stock_movements (date DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON "__SCHEMA__".stock_movements (type);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_stock_in_invoice ON "__SCHEMA__".stock_movements (stock_in_invoice_id);
+
+CREATE TABLE IF NOT EXISTS "__SCHEMA__".stock_in_invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  supplier_name TEXT NOT NULL DEFAULT '',
+  supplier_gst_number TEXT NOT NULL DEFAULT '',
+  supplier_drug_license_number TEXT NOT NULL DEFAULT '',
+  supplier_address TEXT NOT NULL DEFAULT '',
+  supplier_mobile TEXT NOT NULL DEFAULT '',
+  supplier_email TEXT NOT NULL DEFAULT '',
+  supplier_state_code TEXT NOT NULL DEFAULT '',
+  supplier_pan_number TEXT NOT NULL DEFAULT '',
+  supplier_code TEXT NOT NULL DEFAULT '',
+  invoice_number TEXT NOT NULL DEFAULT '',
+  invoice_date TIMESTAMPTZ,
+  due_date TIMESTAMPTZ,
+  invoice_total DECIMAL(12, 2),
+  gst_total DECIMAL(12, 2),
+  discount DECIMAL(12, 2),
+  round_off DECIMAL(12, 2),
+  payment_type TEXT NOT NULL DEFAULT '',
+  supplier_gst TEXT NOT NULL DEFAULT '',
+  place_of_supply TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_by_email TEXT NOT NULL DEFAULT '',
+  created_by_name TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_in_invoices_lookup
+  ON "__SCHEMA__".stock_in_invoices (invoice_number, supplier_gst);
+CREATE INDEX IF NOT EXISTS idx_stock_in_invoices_date
+  ON "__SCHEMA__".stock_in_invoices (invoice_date DESC, created_at DESC);

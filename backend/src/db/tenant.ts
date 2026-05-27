@@ -7,6 +7,7 @@ import type {
   TenantInvoice,
   TenantInvoiceItem,
   TenantProduct,
+  TenantStockInInvoice,
   TenantStockMovement,
   StockMovementType,
   WhatsAppDeliveryStatus,
@@ -17,6 +18,13 @@ import type { CatalogProduct } from '../services/productMatch.js';
 function toNum(v: unknown): number {
   if (v == null) return 0;
   return Number(v);
+}
+
+function toIsoIfValid(v?: string | Date | null): string | null {
+  if (!v) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 function isPgUniqueViolation(err: unknown): boolean {
@@ -82,16 +90,15 @@ function mapMovement(row: Record<string, unknown>): TenantStockMovement {
     type: row.type as StockMovementType,
     quantity: Number(row.quantity),
     balanceAfter: Number(row.balance_after),
-    date: new Date(row.date as string | Date).toISOString(),
+    date: toIsoIfValid(row.date as string | Date) ?? new Date(0).toISOString(),
     referenceType: String(row.reference_type ?? 'manual'),
     referenceId: row.reference_id ? String(row.reference_id) : null,
     referenceLabel: String(row.reference_label ?? ''),
     notes: String(row.notes ?? ''),
+    stockInInvoiceId: row.stock_in_invoice_id ? String(row.stock_in_invoice_id) : null,
     dealerName: String(row.dealer_name ?? ''),
     batchNo: String(row.batch_no ?? ''),
-    expiryDate: row.expiry_date
-      ? new Date(row.expiry_date as string | Date).toISOString().slice(0, 10)
-      : null,
+    expiryDate: toIsoIfValid(row.expiry_date as string | Date)?.slice(0, 10) ?? null,
     costPrice: row.cost_price != null ? toNum(row.cost_price) : null,
     mrp: row.mrp != null ? toNum(row.mrp) : null,
     sellingPrice: row.selling_price != null ? toNum(row.selling_price) : null,
@@ -100,8 +107,67 @@ function mapMovement(row: Record<string, unknown>): TenantStockMovement {
     tabletsPerStrip: Number(row.tablets_per_strip ?? 1),
     createdByEmail: String(row.created_by_email ?? ''),
     createdByName: String(row.created_by_name ?? ''),
-    createdAt: new Date(row.created_at as string | Date).toISOString(),
+    createdAt: toIsoIfValid(row.created_at as string | Date) ?? new Date(0).toISOString(),
     product,
+    stockInInvoice: row.sii_id
+      ? {
+          id: String(row.sii_id),
+          supplierName: String(row.sii_supplier_name ?? ''),
+          supplierGstNumber: String(row.sii_supplier_gst_number ?? ''),
+          supplierDrugLicenseNumber: String(row.sii_supplier_drug_license_number ?? ''),
+          supplierAddress: String(row.sii_supplier_address ?? ''),
+          supplierMobile: String(row.sii_supplier_mobile ?? ''),
+          supplierEmail: String(row.sii_supplier_email ?? ''),
+          supplierStateCode: String(row.sii_supplier_state_code ?? ''),
+          supplierPanNumber: String(row.sii_supplier_pan_number ?? ''),
+          supplierCode: String(row.sii_supplier_code ?? ''),
+          invoiceNumber: String(row.sii_invoice_number ?? ''),
+          invoiceDate: toIsoIfValid(row.sii_invoice_date as string | Date),
+          dueDate: toIsoIfValid(row.sii_due_date as string | Date),
+          invoiceTotal: row.sii_invoice_total != null ? toNum(row.sii_invoice_total) : null,
+          gstTotal: row.sii_gst_total != null ? toNum(row.sii_gst_total) : null,
+          discount: row.sii_discount != null ? toNum(row.sii_discount) : null,
+          roundOff: row.sii_round_off != null ? toNum(row.sii_round_off) : null,
+          paymentType: String(row.sii_payment_type ?? ''),
+          supplierGst: String(row.sii_supplier_gst ?? ''),
+          placeOfSupply: String(row.sii_place_of_supply ?? ''),
+          notes: String(row.sii_notes ?? ''),
+          createdByEmail: String(row.sii_created_by_email ?? ''),
+          createdByName: String(row.sii_created_by_name ?? ''),
+          createdAt: toIsoIfValid(row.sii_created_at as string | Date) ?? new Date(0).toISOString(),
+          updatedAt: toIsoIfValid(row.sii_updated_at as string | Date) ?? new Date(0).toISOString(),
+        }
+      : null,
+  };
+}
+
+function mapStockInInvoice(row: Record<string, unknown>): TenantStockInInvoice {
+  return {
+    id: String(row.id),
+    supplierName: String(row.supplier_name ?? ''),
+    supplierGstNumber: String(row.supplier_gst_number ?? ''),
+    supplierDrugLicenseNumber: String(row.supplier_drug_license_number ?? ''),
+    supplierAddress: String(row.supplier_address ?? ''),
+    supplierMobile: String(row.supplier_mobile ?? ''),
+    supplierEmail: String(row.supplier_email ?? ''),
+    supplierStateCode: String(row.supplier_state_code ?? ''),
+    supplierPanNumber: String(row.supplier_pan_number ?? ''),
+    supplierCode: String(row.supplier_code ?? ''),
+    invoiceNumber: String(row.invoice_number ?? ''),
+    invoiceDate: toIsoIfValid(row.invoice_date as string | Date),
+    dueDate: toIsoIfValid(row.due_date as string | Date),
+    invoiceTotal: row.invoice_total != null ? toNum(row.invoice_total) : null,
+    gstTotal: row.gst_total != null ? toNum(row.gst_total) : null,
+    discount: row.discount != null ? toNum(row.discount) : null,
+    roundOff: row.round_off != null ? toNum(row.round_off) : null,
+    paymentType: String(row.payment_type ?? ''),
+    supplierGst: String(row.supplier_gst ?? ''),
+    placeOfSupply: String(row.place_of_supply ?? ''),
+    notes: String(row.notes ?? ''),
+    createdByEmail: String(row.created_by_email ?? ''),
+    createdByName: String(row.created_by_name ?? ''),
+    createdAt: toIsoIfValid(row.created_at as string | Date) ?? new Date(0).toISOString(),
+    updatedAt: toIsoIfValid(row.updated_at as string | Date) ?? new Date(0).toISOString(),
   };
 }
 
@@ -485,6 +551,165 @@ export class TenantDb {
   }
 
   // --- Stock movements ---
+  async createStockInInvoice(data: {
+    supplierName?: string;
+    supplierGstNumber?: string;
+    supplierDrugLicenseNumber?: string;
+    supplierAddress?: string;
+    supplierMobile?: string;
+    supplierEmail?: string;
+    supplierStateCode?: string;
+    supplierPanNumber?: string;
+    supplierCode?: string;
+    invoiceNumber?: string;
+    invoiceDate?: string | null;
+    dueDate?: string | null;
+    invoiceTotal?: number | null;
+    gstTotal?: number | null;
+    discount?: number | null;
+    roundOff?: number | null;
+    paymentType?: string;
+    supplierGst?: string;
+    placeOfSupply?: string;
+    notes?: string;
+    createdByEmail?: string;
+    createdByName?: string;
+  }): Promise<TenantStockInInvoice> {
+    const invoiceDateIso = toIsoIfValid(data.invoiceDate);
+    const dueDateIso = toIsoIfValid(data.dueDate);
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      INSERT INTO ${Prisma.raw(`${this.s}.stock_in_invoices`)}
+        (supplier_name, supplier_gst_number, supplier_drug_license_number, supplier_address,
+         supplier_mobile, supplier_email, supplier_state_code, supplier_pan_number, supplier_code,
+         invoice_number, invoice_date, due_date, invoice_total, gst_total, discount, round_off,
+         payment_type, supplier_gst, place_of_supply, notes, created_by_email, created_by_name)
+      VALUES (
+        ${data.supplierName ?? ''},
+        ${data.supplierGstNumber ?? ''},
+        ${data.supplierDrugLicenseNumber ?? ''},
+        ${data.supplierAddress ?? ''},
+        ${data.supplierMobile ?? ''},
+        ${data.supplierEmail ?? ''},
+        ${data.supplierStateCode ?? ''},
+        ${data.supplierPanNumber ?? ''},
+        ${data.supplierCode ?? ''},
+        ${data.invoiceNumber ?? ''},
+        ${invoiceDateIso}::timestamptz,
+        ${dueDateIso}::timestamptz,
+        ${data.invoiceTotal ?? null},
+        ${data.gstTotal ?? null},
+        ${data.discount ?? null},
+        ${data.roundOff ?? null},
+        ${data.paymentType ?? ''},
+        ${data.supplierGst ?? ''},
+        ${data.placeOfSupply ?? ''},
+        ${data.notes ?? ''},
+        ${data.createdByEmail ?? ''},
+        ${data.createdByName ?? ''}
+      )
+      RETURNING *
+    `;
+    return mapStockInInvoice(rows[0]);
+  }
+
+  async findStockInInvoiceByNumberAndSupplierGst(
+    invoiceNumber: string,
+    supplierGst: string
+  ): Promise<TenantStockInInvoice | null> {
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT * FROM ${Prisma.raw(`${this.s}.stock_in_invoices`)}
+      WHERE invoice_number = ${invoiceNumber}
+        AND supplier_gst = ${supplierGst}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    return rows[0] ? mapStockInInvoice(rows[0]) : null;
+  }
+
+  async mergeStockInInvoice(id: string, data: Partial<{
+    supplierName: string;
+    supplierGstNumber: string;
+    supplierDrugLicenseNumber: string;
+    supplierAddress: string;
+    supplierMobile: string;
+    supplierEmail: string;
+    supplierStateCode: string;
+    supplierPanNumber: string;
+    supplierCode: string;
+    invoiceNumber: string;
+    invoiceDate: string | null;
+    dueDate: string | null;
+    invoiceTotal: number | null;
+    gstTotal: number | null;
+    discount: number | null;
+    roundOff: number | null;
+    paymentType: string;
+    supplierGst: string;
+    placeOfSupply: string;
+    notes: string;
+  }>): Promise<TenantStockInInvoice | null> {
+    const current = await this.getStockInInvoice(id);
+    if (!current) return null;
+    const nextInvoiceDate = data.invoiceDate !== undefined ? data.invoiceDate : current.invoiceDate;
+    const nextDueDate = data.dueDate !== undefined ? data.dueDate : current.dueDate;
+    const nextInvoiceDateIso = toIsoIfValid(nextInvoiceDate);
+    const nextDueDateIso = toIsoIfValid(nextDueDate);
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      UPDATE ${Prisma.raw(`${this.s}.stock_in_invoices`)}
+      SET supplier_name = ${data.supplierName ?? current.supplierName},
+          supplier_gst_number = ${data.supplierGstNumber ?? current.supplierGstNumber},
+          supplier_drug_license_number = ${data.supplierDrugLicenseNumber ?? current.supplierDrugLicenseNumber},
+          supplier_address = ${data.supplierAddress ?? current.supplierAddress},
+          supplier_mobile = ${data.supplierMobile ?? current.supplierMobile},
+          supplier_email = ${data.supplierEmail ?? current.supplierEmail},
+          supplier_state_code = ${data.supplierStateCode ?? current.supplierStateCode},
+          supplier_pan_number = ${data.supplierPanNumber ?? current.supplierPanNumber},
+          supplier_code = ${data.supplierCode ?? current.supplierCode},
+          invoice_number = ${data.invoiceNumber ?? current.invoiceNumber},
+          invoice_date = ${nextInvoiceDateIso}::timestamptz,
+          due_date = ${nextDueDateIso}::timestamptz,
+          invoice_total = ${data.invoiceTotal !== undefined ? data.invoiceTotal : current.invoiceTotal},
+          gst_total = ${data.gstTotal !== undefined ? data.gstTotal : current.gstTotal},
+          discount = ${data.discount !== undefined ? data.discount : current.discount},
+          round_off = ${data.roundOff !== undefined ? data.roundOff : current.roundOff},
+          payment_type = ${data.paymentType ?? current.paymentType},
+          supplier_gst = ${data.supplierGst ?? current.supplierGst},
+          place_of_supply = ${data.placeOfSupply ?? current.placeOfSupply},
+          notes = ${data.notes ?? current.notes},
+          updated_at = NOW()
+      WHERE id = ${id}::uuid
+      RETURNING *
+    `;
+    return rows[0] ? mapStockInInvoice(rows[0]) : null;
+  }
+
+  async getStockInInvoice(id: string): Promise<TenantStockInInvoice | null> {
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT * FROM ${Prisma.raw(`${this.s}.stock_in_invoices`)}
+      WHERE id = ${id}::uuid
+      LIMIT 1
+    `;
+    return rows[0] ? mapStockInInvoice(rows[0]) : null;
+  }
+
+  async listStockInInvoices(opts: {
+    page: number;
+    pageSize: number;
+  }): Promise<{ items: TenantStockInInvoice[]; total: number }> {
+    const countRows = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*)::bigint AS count
+      FROM ${Prisma.raw(`${this.s}.stock_in_invoices`)}
+    `;
+    const total = Number(countRows[0]?.count ?? 0);
+    const offset = (opts.page - 1) * opts.pageSize;
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT * FROM ${Prisma.raw(`${this.s}.stock_in_invoices`)}
+      ORDER BY COALESCE(invoice_date, created_at) DESC, created_at DESC
+      LIMIT ${opts.pageSize} OFFSET ${offset}
+    `;
+    return { items: rows.map(mapStockInInvoice), total };
+  }
+
   async createMovement(data: {
     productId: string;
     type: StockMovementType;
@@ -495,6 +720,7 @@ export class TenantDb {
     referenceId?: string | null;
     referenceLabel?: string;
     notes?: string;
+    stockInInvoiceId?: string | null;
     dealerName?: string;
     batchNo?: string;
     expiryDate?: string | null;
@@ -511,6 +737,7 @@ export class TenantDb {
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO ${Prisma.raw(`${this.s}.stock_movements`)}
         (product_id, type, quantity, balance_after, date, reference_type, reference_id, reference_label, notes,
+         stock_in_invoice_id,
          dealer_name, batch_no, expiry_date, cost_price, mrp, selling_price,
          num_boxes, strips_per_box, tablets_per_strip,
          created_by_email, created_by_name)
@@ -524,6 +751,7 @@ export class TenantDb {
         ${data.referenceId ?? null},
         ${data.referenceLabel ?? ''},
         ${data.notes ?? ''},
+        ${data.stockInInvoiceId ? Prisma.sql`${data.stockInInvoiceId}::uuid` : null},
         ${data.dealerName ?? ''},
         ${data.batchNo ?? ''},
         ${expiryVal}::date,
@@ -543,9 +771,21 @@ export class TenantDb {
 
   async getMovement(id: string): Promise<TenantStockMovement | null> {
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT m.*, p.name AS p_name, p.barcode AS p_barcode, p.unit AS p_unit
+      SELECT m.*, p.name AS p_name, p.barcode AS p_barcode, p.unit AS p_unit,
+        sii.id AS sii_id, sii.supplier_name AS sii_supplier_name, sii.supplier_gst_number AS sii_supplier_gst_number,
+        sii.supplier_drug_license_number AS sii_supplier_drug_license_number, sii.supplier_address AS sii_supplier_address,
+        sii.supplier_mobile AS sii_supplier_mobile, sii.supplier_email AS sii_supplier_email,
+        sii.supplier_state_code AS sii_supplier_state_code, sii.supplier_pan_number AS sii_supplier_pan_number,
+        sii.supplier_code AS sii_supplier_code, sii.invoice_number AS sii_invoice_number,
+        sii.invoice_date AS sii_invoice_date, sii.due_date AS sii_due_date, sii.invoice_total AS sii_invoice_total,
+        sii.gst_total AS sii_gst_total, sii.discount AS sii_discount, sii.round_off AS sii_round_off,
+        sii.payment_type AS sii_payment_type, sii.supplier_gst AS sii_supplier_gst,
+        sii.place_of_supply AS sii_place_of_supply, sii.notes AS sii_notes,
+        sii.created_by_email AS sii_created_by_email, sii.created_by_name AS sii_created_by_name,
+        sii.created_at AS sii_created_at, sii.updated_at AS sii_updated_at
       FROM ${Prisma.raw(`${this.s}.stock_movements`)} m
       LEFT JOIN ${Prisma.raw(`${this.s}.products`)} p ON p.id = m.product_id
+      LEFT JOIN ${Prisma.raw(`${this.s}.stock_in_invoices`)} sii ON sii.id = m.stock_in_invoice_id
       WHERE m.id = ${id}::uuid
       LIMIT 1
     `;
@@ -587,7 +827,7 @@ export class TenantDb {
       WHERE id = ${id}::uuid
       RETURNING *
     `;
-    return rows.length ? mapMovement(rows[0]) : null;
+    return rows.length ? await this.getMovement(id) : null;
   }
 
   async linkSaleMovementsToInvoice(invoiceId: string, invoiceNumber: string): Promise<void> {
@@ -628,14 +868,49 @@ export class TenantDb {
     const offset = (opts.page - 1) * opts.pageSize;
 
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT m.*, p.name AS p_name, p.barcode AS p_barcode, p.unit AS p_unit
+      SELECT m.*, p.name AS p_name, p.barcode AS p_barcode, p.unit AS p_unit,
+        sii.id AS sii_id, sii.supplier_name AS sii_supplier_name, sii.supplier_gst_number AS sii_supplier_gst_number,
+        sii.supplier_drug_license_number AS sii_supplier_drug_license_number, sii.supplier_address AS sii_supplier_address,
+        sii.supplier_mobile AS sii_supplier_mobile, sii.supplier_email AS sii_supplier_email,
+        sii.supplier_state_code AS sii_supplier_state_code, sii.supplier_pan_number AS sii_supplier_pan_number,
+        sii.supplier_code AS sii_supplier_code, sii.invoice_number AS sii_invoice_number,
+        sii.invoice_date AS sii_invoice_date, sii.due_date AS sii_due_date, sii.invoice_total AS sii_invoice_total,
+        sii.gst_total AS sii_gst_total, sii.discount AS sii_discount, sii.round_off AS sii_round_off,
+        sii.payment_type AS sii_payment_type, sii.supplier_gst AS sii_supplier_gst,
+        sii.place_of_supply AS sii_place_of_supply, sii.notes AS sii_notes,
+        sii.created_by_email AS sii_created_by_email, sii.created_by_name AS sii_created_by_name,
+        sii.created_at AS sii_created_at, sii.updated_at AS sii_updated_at
       FROM ${Prisma.raw(`${this.s}.stock_movements`)} m
       LEFT JOIN ${Prisma.raw(`${this.s}.products`)} p ON p.id = m.product_id
+      LEFT JOIN ${Prisma.raw(`${this.s}.stock_in_invoices`)} sii ON sii.id = m.stock_in_invoice_id
       ${where}
       ORDER BY m.date DESC, m.created_at DESC
       LIMIT ${opts.pageSize} OFFSET ${offset}
     `;
     return { items: rows.map(mapMovement), total };
+  }
+
+  async listMovementsByStockInInvoice(stockInInvoiceId: string): Promise<TenantStockMovement[]> {
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT m.*, p.name AS p_name, p.barcode AS p_barcode, p.unit AS p_unit,
+        sii.id AS sii_id, sii.supplier_name AS sii_supplier_name, sii.supplier_gst_number AS sii_supplier_gst_number,
+        sii.supplier_drug_license_number AS sii_supplier_drug_license_number, sii.supplier_address AS sii_supplier_address,
+        sii.supplier_mobile AS sii_supplier_mobile, sii.supplier_email AS sii_supplier_email,
+        sii.supplier_state_code AS sii_supplier_state_code, sii.supplier_pan_number AS sii_supplier_pan_number,
+        sii.supplier_code AS sii_supplier_code, sii.invoice_number AS sii_invoice_number,
+        sii.invoice_date AS sii_invoice_date, sii.due_date AS sii_due_date, sii.invoice_total AS sii_invoice_total,
+        sii.gst_total AS sii_gst_total, sii.discount AS sii_discount, sii.round_off AS sii_round_off,
+        sii.payment_type AS sii_payment_type, sii.supplier_gst AS sii_supplier_gst,
+        sii.place_of_supply AS sii_place_of_supply, sii.notes AS sii_notes,
+        sii.created_by_email AS sii_created_by_email, sii.created_by_name AS sii_created_by_name,
+        sii.created_at AS sii_created_at, sii.updated_at AS sii_updated_at
+      FROM ${Prisma.raw(`${this.s}.stock_movements`)} m
+      LEFT JOIN ${Prisma.raw(`${this.s}.products`)} p ON p.id = m.product_id
+      LEFT JOIN ${Prisma.raw(`${this.s}.stock_in_invoices`)} sii ON sii.id = m.stock_in_invoice_id
+      WHERE m.stock_in_invoice_id = ${stockInInvoiceId}::uuid
+      ORDER BY m.date ASC, m.created_at ASC
+    `;
+    return rows.map(mapMovement);
   }
 
   // --- Invoices ---

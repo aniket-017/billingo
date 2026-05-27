@@ -86,6 +86,7 @@ export type TenantStockMovement = {
   referenceId: string | null;
   referenceLabel: string;
   notes: string;
+  stockInInvoiceId?: string | null;
   dealerName: string;
   batchNo: string;
   expiryDate: string | null;
@@ -99,4 +100,33 @@ export type TenantStockMovement = {
   createdByName: string;
   createdAt: string;
   product?: { id: string; name: string; barcode: string; unit: string };
+  stockInInvoice?: TenantStockInInvoice | null;
+};
+
+export type TenantStockInInvoice = {
+  id: string;
+  supplierName: string;
+  supplierGstNumber: string;
+  supplierDrugLicenseNumber: string;
+  supplierAddress: string;
+  supplierMobile: string;
+  supplierEmail: string;
+  supplierStateCode: string;
+  supplierPanNumber: string;
+  supplierCode: string;
+  invoiceNumber: string;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  invoiceTotal: number | null;
+  gstTotal: number | null;
+  discount: number | null;
+  roundOff: number | null;
+  paymentType: string;
+  supplierGst: string;
+  placeOfSupply: string;
+  notes: string;
+  createdByEmail: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
 };

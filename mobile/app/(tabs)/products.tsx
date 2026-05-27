@@ -103,6 +103,7 @@ export default function ProductsScreen() {
 
   // Movement history
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [historyError, setHistoryError] = useState('');
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsTotalPages, setMovementsTotalPages] = useState(1);
@@ -111,6 +112,9 @@ export default function ProductsScreen() {
 
   // Movement detail / edit
   const [selectedMovement, setSelectedMovement] = useState<StockMovement | null>(null);
+  const [selectedMovementInvoice, setSelectedMovementInvoice] = useState<
+    NonNullable<StockMovement['stockInInvoice']> | null
+  >(null);
   const [editingMovement, setEditingMovement] = useState(false);
   const [emBoxes, setEmBoxes] = useState('');
   const [emStrips, setEmStrips] = useState('');
@@ -190,8 +194,12 @@ export default function ProductsScreen() {
       setMovements((prev) => append ? [...prev, ...res.items] : res.items);
       setMovementsPage(res.page);
       setMovementsTotalPages(res.totalPages);
-    } catch {
-      if (!append) setMovements([]);
+      setHistoryError('');
+    } catch (e) {
+      if (!append) {
+        setMovements([]);
+        setHistoryError(e instanceof Error ? e.message : 'Failed to load history');
+      }
     } finally {
       setMovementsLoading(false);
       setMovementsLoadingMore(false);
@@ -206,6 +214,7 @@ export default function ProductsScreen() {
     setHistoryFilter('all');
     prefillStockForm(p);
     setMovements([]);
+    setHistoryError('');
     loadMovements(p.id);
   }
 
@@ -265,8 +274,15 @@ export default function ProductsScreen() {
 
   function openMovementDetail(m: StockMovement) {
     setSelectedMovement(m);
+    setSelectedMovementInvoice(m.stockInInvoice ?? null);
     setEditingMovement(false);
     prefillMovementEditForm(m, selected);
+    if (m.stockInInvoiceId) {
+      api.invoices
+        .getStockIn(m.stockInInvoiceId)
+        .then((full) => setSelectedMovementInvoice(full))
+        .catch(() => undefined);
+    }
   }
 
   async function handleAddStock() {
@@ -539,6 +555,8 @@ export default function ProductsScreen() {
                 </View>
                 {movementsLoading ? (
                   <ActivityIndicator size="small" color={colors.primary[600]} style={{ paddingVertical: spacing.md }} />
+                ) : historyError ? (
+                  <Text style={st.historyError}>{historyError}</Text>
                 ) : filteredMovements.length === 0 ? (
                   <Text style={st.noHistory}>No {historyFilter === 'all' ? '' : historyFilter === 'in' ? 'stock in ' : 'stock out '}history</Text>
                 ) : (
@@ -584,7 +602,7 @@ export default function ProductsScreen() {
 
       {/* ---- Movement Detail Modal ---- */}
       <Modal visible={!!selectedMovement} animationType="slide" transparent onRequestClose={() => setSelectedMovement(null)}>
-        <Pressable style={st.backdrop} onPress={() => { setSelectedMovement(null); setEditingMovement(false); }} />
+        <Pressable style={st.backdrop} onPress={() => { setSelectedMovement(null); setSelectedMovementInvoice(null); setEditingMovement(false); }} />
         <View style={[st.sheet, { paddingBottom: spacing.xl + insets.bottom }]}>
           {selectedMovement ? (
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -611,7 +629,7 @@ export default function ProductsScreen() {
                       <Ionicons name="create-outline" size={18} color={colors.primary[600]} />
                     </Pressable>
                   ) : null}
-                  <Pressable onPress={() => { setSelectedMovement(null); setEditingMovement(false); }} hitSlop={12}>
+                  <Pressable onPress={() => { setSelectedMovement(null); setSelectedMovementInvoice(null); setEditingMovement(false); }} hitSlop={12}>
                     <Ionicons name="close" size={24} color={colors.textMuted} />
                   </Pressable>
                 </View>
@@ -711,6 +729,43 @@ export default function ProductsScreen() {
                     {selectedMovement.notes ? <DetailRow label="Notes" value={selectedMovement.notes} /> : null}
                     {selectedMovement.createdByName ? <DetailRow label="By" value={selectedMovement.createdByName} /> : null}
                   </View>
+
+                  {selectedMovementInvoice ? (
+                    <View style={st.sec}>
+                      <Text style={st.secTitle}>STOCK-IN INVOICE</Text>
+                      {selectedMovementInvoice.invoiceNumber ? (
+                        <DetailRow label="Invoice #" value={selectedMovementInvoice.invoiceNumber} />
+                      ) : null}
+                      {selectedMovementInvoice.invoiceDate ? (
+                        <DetailRow
+                          label="Date"
+                          value={new Date(selectedMovementInvoice.invoiceDate).toLocaleDateString('en-IN')}
+                        />
+                      ) : null}
+                      {selectedMovementInvoice.supplierName ? (
+                        <DetailRow label="Supplier" value={selectedMovementInvoice.supplierName} />
+                      ) : null}
+                      {selectedMovementInvoice.supplierGst || selectedMovementInvoice.supplierGstNumber ? (
+                        <DetailRow
+                          label="GST"
+                          value={
+                            selectedMovementInvoice.supplierGst ||
+                            selectedMovementInvoice.supplierGstNumber ||
+                            ''
+                          }
+                        />
+                      ) : null}
+                      {selectedMovementInvoice.supplierDrugLicenseNumber ? (
+                        <DetailRow
+                          label="Drug Lic"
+                          value={selectedMovementInvoice.supplierDrugLicenseNumber}
+                        />
+                      ) : null}
+                      {selectedMovementInvoice.invoiceTotal != null ? (
+                        <DetailRow label="Total" value={formatCurrency(selectedMovementInvoice.invoiceTotal)} />
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               )}
             </ScrollView>
@@ -851,6 +906,7 @@ const st = StyleSheet.create({
   histFilterText: { fontFamily: font.semiBold, fontSize: 12, color: colors.textMuted },
   histFilterTextActive: { color: colors.white },
   noHistory: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, textAlign: 'center', paddingVertical: spacing.md },
+  historyError: { fontFamily: font.medium, fontSize: 13, color: colors.danger, textAlign: 'center', paddingVertical: spacing.md },
   loadMoreBtn: { alignItems: 'center', paddingVertical: 12, marginTop: spacing.xs },
   loadMoreText: { fontFamily: font.semiBold, fontSize: 14, color: colors.primary[600] },
   histRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },

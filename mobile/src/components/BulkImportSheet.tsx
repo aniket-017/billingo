@@ -20,6 +20,7 @@ import {
   type ParsedInvoiceProduct,
   type ParsedInvoicePricingUnit,
   type ProductMatchPreviewItem,
+  type StockInInvoiceHeader,
 } from '@/src/api/client';
 import Button from '@/src/components/Button';
 import BulkImportRowItem, { type EditableRow } from '@/src/components/BulkImportRowItem';
@@ -34,6 +35,7 @@ import {
 } from '@/src/utils/bulkImportReview';
 import { extractInvoiceOcrText, type InvoiceOcrResult } from '@/src/utils/extractInvoiceOcrText';
 import { formatExpiryDisplay, formatExpiryInput, parseExpiryToIso } from '@/src/utils/expiry';
+import { formatCurrency } from '@/src/utils/format';
 
 let recognizeText: ((uri: string) => Promise<unknown>) | null = null;
 try {
@@ -106,6 +108,36 @@ function mapParsedProduct(p: ParsedInvoiceProduct): EditableRow {
   };
 }
 
+function mergeInvoiceHeaders(
+  current?: StockInInvoiceHeader,
+  incoming?: StockInInvoiceHeader
+): StockInInvoiceHeader | undefined {
+  if (!current && !incoming) return undefined;
+  const c = current ?? {};
+  const i = incoming ?? {};
+  return {
+    supplierName: i.supplierName || c.supplierName,
+    supplierGstNumber: i.supplierGstNumber || c.supplierGstNumber,
+    supplierDrugLicenseNumber: i.supplierDrugLicenseNumber || c.supplierDrugLicenseNumber,
+    supplierAddress: i.supplierAddress || c.supplierAddress,
+    supplierMobile: i.supplierMobile || c.supplierMobile,
+    supplierEmail: i.supplierEmail || c.supplierEmail,
+    supplierStateCode: i.supplierStateCode || c.supplierStateCode,
+    supplierPanNumber: i.supplierPanNumber || c.supplierPanNumber,
+    supplierCode: i.supplierCode || c.supplierCode,
+    invoiceNumber: i.invoiceNumber || c.invoiceNumber,
+    invoiceDate: i.invoiceDate || c.invoiceDate,
+    dueDate: i.dueDate || c.dueDate,
+    invoiceTotal: i.invoiceTotal ?? c.invoiceTotal,
+    gstTotal: i.gstTotal ?? c.gstTotal,
+    discount: i.discount ?? c.discount,
+    roundOff: i.roundOff ?? c.roundOff,
+    paymentType: i.paymentType || c.paymentType,
+    supplierGst: i.supplierGst || c.supplierGst,
+    placeOfSupply: i.placeOfSupply || c.placeOfSupply,
+  };
+}
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -120,6 +152,7 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   const [processingStatus, setProcessingStatus] = useState('');
   const [rows, setRows] = useState<EditableRow[]>([]);
   const [dealerName, setDealerName] = useState('');
+  const [invoiceHeader, setInvoiceHeader] = useState<StockInInvoiceHeader | undefined>(undefined);
   const [error, setError] = useState('');
   const [saveResult, setSaveResult] = useState<{
     stockedIn: number;
@@ -128,8 +161,51 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   } | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [pickerRowKey, setPickerRowKey] = useState<string | null>(null);
+  const [invoiceEditOpen, setInvoiceEditOpen] = useState(false);
 
   const reviewStats = useMemo(() => countReviewStats(rows), [rows]);
+
+  const displayInvoiceHeader = useMemo(
+    () =>
+      mergeInvoiceHeaders(
+        invoiceHeader,
+        dealerName.trim() ? { supplierName: dealerName.trim() } : undefined
+      ),
+    [invoiceHeader, dealerName]
+  );
+
+  const invoicePreviewRows = useMemo(() => {
+    const h = displayInvoiceHeader;
+    if (!h) return [] as [string, string][];
+    const rows: [string, string][] = [];
+    const add = (label: string, value?: string | number | null) => {
+      if (value == null || String(value).trim() === '') return;
+      rows.push([label, String(value)]);
+    };
+    add('Supplier', h.supplierName);
+    add('Supplier GST', h.supplierGst || h.supplierGstNumber);
+    add('Drug License', h.supplierDrugLicenseNumber);
+    add('Address', h.supplierAddress);
+    add('Mobile', h.supplierMobile);
+    add('Email', h.supplierEmail);
+    add('State Code', h.supplierStateCode);
+    add('PAN', h.supplierPanNumber);
+    add('Supplier Code', h.supplierCode);
+    add('Invoice #', h.invoiceNumber);
+    add('Invoice Date', h.invoiceDate);
+    add('Due Date', h.dueDate);
+    if (h.invoiceTotal != null) add('Invoice Total', formatCurrency(h.invoiceTotal));
+    if (h.gstTotal != null) add('GST Total', formatCurrency(h.gstTotal));
+    if (h.discount != null) add('Discount', formatCurrency(h.discount));
+    if (h.roundOff != null) add('Round Off', formatCurrency(h.roundOff));
+    add('Payment', h.paymentType);
+    add('Place Of Supply', h.placeOfSupply);
+    return rows;
+  }, [displayInvoiceHeader]);
+
+  const patchInvoiceHeader = useCallback((field: keyof StockInInvoiceHeader, value: string) => {
+    setInvoiceHeader((prev) => ({ ...(prev ?? {}), [field]: value }));
+  }, []);
 
   const rowMetaByKey = useMemo(() => {
     const map = new Map<string, { issues: string[]; needsReview: boolean }>();
@@ -149,9 +225,11 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     setProcessingStatus('');
     setRows([]);
     setDealerName('');
+    setInvoiceHeader(undefined);
     setError('');
     setSaveResult(null);
     setExpandedKeys(new Set());
+    setInvoiceEditOpen(false);
   }, []);
 
   function handleClose() {
@@ -268,6 +346,22 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     if (parseResult.dealerName && (!append || !dealerName.trim())) {
       setDealerName(parseResult.dealerName);
     }
+    setInvoiceHeader((prev) =>
+      mergeInvoiceHeaders(
+        prev,
+        parseResult.invoiceHeader
+          ? {
+              ...parseResult.invoiceHeader,
+              supplierName:
+                parseResult.invoiceHeader.supplierName ||
+                parseResult.dealerName ||
+                prev?.supplierName,
+            }
+          : parseResult.dealerName
+            ? { supplierName: parseResult.dealerName }
+            : undefined
+      )
+    );
 
     const newRows = parseResult.products.map(mapParsedProduct);
     setProcessingStatus('Matching with your catalog...');
@@ -431,7 +525,13 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
         return { ...base, action: 'create' as const };
       });
 
-      const result = await api.products.bulkImport(payload);
+      const result = await api.products.bulkImport({
+        products: payload,
+        invoiceHeader: mergeInvoiceHeaders(
+          invoiceHeader,
+          dealerName.trim() ? { supplierName: dealerName.trim() } : undefined
+        ),
+      });
       setSaveResult({
         stockedIn: result.stockedIn.length,
         created: result.created.length,
@@ -492,18 +592,86 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   );
 
   const listHeader = useMemo(
-    () =>
-      rows.length > 0 ? (
-        <View style={st.addPageRow}>
-          <Button
-            title="Add another page"
-            variant="secondary"
-            onPress={() => pickImage('gallery', true)}
-            style={st.addPageBtn}
-          />
+    () => (
+      <View>
+        <View style={st.invoicePreviewCard}>
+          <View style={st.invoicePreviewTitleRow}>
+            <Text style={st.invoicePreviewTitle}>Invoice & supplier (before import)</Text>
+            <Pressable
+              style={st.invoiceEditIconBtn}
+              onPress={() => setInvoiceEditOpen((prev) => !prev)}
+              hitSlop={8}
+            >
+              <Ionicons
+                name={invoiceEditOpen ? 'checkmark-circle-outline' : 'create-outline'}
+                size={18}
+                color={colors.primary[600]}
+              />
+            </Pressable>
+          </View>
+
+          {invoicePreviewRows.length > 0 ? (
+            invoicePreviewRows.map(([label, value]) => (
+              <View key={label} style={st.invoicePreviewRow}>
+                <Text style={st.invoicePreviewLabel}>{label}</Text>
+                <Text style={st.invoicePreviewValue}>{value}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={st.invoicePreviewEmpty}>
+              No invoice header detected yet - scan a bill or enter details below.
+            </Text>
+          )}
+
+          {invoiceEditOpen ? (
+            <>
+              <View style={st.invoiceEditRow}>
+                <Input
+                  label="Supplier Name"
+                  value={dealerName}
+                  onChangeText={setDealerName}
+                  placeholder="Supplier / dealer name"
+                />
+              </View>
+              <View style={st.invoiceEditRow}>
+                <Input
+                  label="Invoice #"
+                  value={displayInvoiceHeader?.invoiceNumber ?? ''}
+                  onChangeText={(v) => patchInvoiceHeader('invoiceNumber', v)}
+                  placeholder="Invoice number"
+                />
+              </View>
+              <View style={st.invoiceEditRow}>
+                <Input
+                  label="Supplier GST"
+                  value={displayInvoiceHeader?.supplierGst || displayInvoiceHeader?.supplierGstNumber || ''}
+                  onChangeText={(v) => {
+                    setInvoiceHeader((prev) => ({
+                      ...(prev ?? {}),
+                      supplierGst: v,
+                      supplierGstNumber: v,
+                    }));
+                  }}
+                  placeholder="GSTIN"
+                />
+              </View>
+            </>
+          ) : null}
         </View>
-      ) : null,
-    [rows.length]
+
+        {rows.length > 0 ? (
+          <View style={st.addPageRow}>
+            <Button
+              title="Add another page"
+              variant="secondary"
+              onPress={() => pickImage('gallery', true)}
+              style={st.addPageBtn}
+            />
+          </View>
+        ) : null}
+      </View>
+    ),
+    [rows.length, invoicePreviewRows, invoiceEditOpen, dealerName, displayInvoiceHeader, patchInvoiceHeader]
   );
 
   const listFooter = useMemo(
@@ -595,18 +763,10 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
               </Text>
             </View>
 
-            <View style={st.dealerRow}>
-              <Input
-                label="Dealer Name"
-                value={dealerName}
-                onChangeText={setDealerName}
-                placeholder="Dealer name (applies to all products)"
-              />
-            </View>
-
             {error ? <Text style={st.errorText}>{error}</Text> : null}
 
             <FlatList
+              style={st.list}
               data={rows}
               renderItem={renderListItem}
               keyExtractor={keyExtractor}
@@ -731,6 +891,63 @@ const st = StyleSheet.create({
     paddingBottom: spacing.xs,
   },
   reviewCount: { fontFamily: font.semiBold, fontSize: 16, color: colors.text },
+  list: { flex: 1 },
+  invoicePreviewCard: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.surface[200],
+  },
+  invoicePreviewTitle: {
+    fontFamily: font.bold,
+    fontSize: 14,
+    color: colors.text,
+  },
+  invoicePreviewTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  invoiceEditIconBtn: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: colors.primary[50],
+  },
+  invoicePreviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surface[100],
+  },
+  invoicePreviewLabel: {
+    fontFamily: font.medium,
+    fontSize: 12,
+    color: colors.textMuted,
+    flex: 1,
+  },
+  invoicePreviewValue: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.text,
+    flex: 1.4,
+    textAlign: 'right',
+  },
+  invoicePreviewEmpty: {
+    fontFamily: font.regular,
+    fontSize: 13,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+  },
+  invoiceEditRow: { marginTop: spacing.sm },
   rescanText: { fontFamily: font.medium, fontSize: 14, color: colors.primary[600] },
   statsBar: {
     flexDirection: 'row',
@@ -741,7 +958,6 @@ const st = StyleSheet.create({
   statsReady: { fontFamily: font.medium, fontSize: 14, color: colors.success },
   statsDot: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted, marginHorizontal: 6 },
   statsReview: { fontFamily: font.medium, fontSize: 14, color: '#b45309' },
-  dealerRow: { paddingHorizontal: spacing.md, marginBottom: spacing.xs },
   listContent: { paddingHorizontal: spacing.md, paddingBottom: 100 },
   addPageRow: { marginBottom: spacing.sm },
   addPageBtn: { marginBottom: 0 },

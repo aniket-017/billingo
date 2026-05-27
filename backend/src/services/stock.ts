@@ -30,6 +30,7 @@ export interface ApplyMovementInput {
   date?: Date;
   reference?: MovementReference;
   notes?: string;
+  stockInInvoiceId?: string | null;
   user?: AuthPayload;
   /** Purchase cost per unit when receiving stock; updates weighted average product cost. */
   costPrice?: number;
@@ -107,6 +108,7 @@ export async function applyMovement(schemaName: string, input: ApplyMovementInpu
     referenceId: reference?.referenceId ?? null,
     referenceLabel: reference?.referenceLabel ?? '',
     notes: notes ?? '',
+    stockInInvoiceId: input.stockInInvoiceId ?? null,
     dealerName: input.dealerName ?? '',
     batchNo: input.batchNo ?? '',
     expiryDate: input.expiryDate ?? null,

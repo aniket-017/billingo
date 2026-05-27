@@ -24,6 +24,7 @@ import { migrateTenantBulkFields } from './db/migrateTenantBulkFields.js';
 import { migrateTenantProductFields } from './db/migrateTenantProductFields.js';
 import { migrateStockMovementFields } from './db/migrateStockMovementFields.js';
 import { migrateTenantNameNormalized } from './db/migrateTenantNameNormalized.js';
+import { migrateStockInInvoices } from './db/migrateStockInInvoices.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -78,6 +79,7 @@ async function start() {
   await migrateTenantProductFields();
   await migrateStockMovementFields();
   await migrateTenantNameNormalized();
+  await migrateStockInInvoices();
   await seedAdmin();
   app.listen(PORT, () => {
     console.log(`Plan2Automate API running at http://localhost:${PORT}`);
