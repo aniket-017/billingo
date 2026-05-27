@@ -17,12 +17,41 @@ type Props = {
   isExpanded: boolean;
   issues: string[];
   needsReview: boolean;
+  matchLabel?: string | null;
+  matchTone?: 'auto' | 'review' | 'new';
+  onPickMatch?: () => void;
   onToggle: (key: string) => void;
   onRemove: (key: string) => void;
   onUpdateRow: (key: string, field: string, value: string | number) => void;
   onUpdateExpiry: (key: string, raw: string) => void;
   onUpdateMrp: (key: string, val: number) => void;
+  onNameBlur?: (key: string, name: string) => void;
 };
+
+function MatchBadge({
+  label,
+  tone,
+  onPress,
+}: {
+  label: string;
+  tone: 'auto' | 'review' | 'new';
+  onPress?: () => void;
+}) {
+  const toneStyle =
+    tone === 'auto' ? st.matchAuto : tone === 'review' ? st.matchReview : st.matchNew;
+  const inner = (
+    <View style={[st.matchBadge, toneStyle]}>
+      <Text style={[st.matchBadgeText, tone === 'auto' && st.matchBadgeTextAuto]}>{label}</Text>
+      {tone === 'review' && onPress ? (
+        <Ionicons name="chevron-forward" size={14} color="#b45309" />
+      ) : null}
+    </View>
+  );
+  if (tone === 'review' && onPress) {
+    return <Pressable onPress={onPress}>{inner}</Pressable>;
+  }
+  return inner;
+}
 
 function IssueChips({ issues }: { issues: string[] }) {
   if (issues.length === 0) return null;
@@ -43,11 +72,15 @@ function BulkImportRowItem({
   isExpanded,
   issues,
   needsReview,
+  matchLabel,
+  matchTone,
+  onPickMatch,
   onToggle,
   onRemove,
   onUpdateRow,
   onUpdateExpiry,
   onUpdateMrp,
+  onNameBlur,
 }: Props) {
   if (!isExpanded) {
     const sell = item.sellingPrice > 0 ? item.sellingPrice : item.mrp;
@@ -72,6 +105,9 @@ function BulkImportRowItem({
             <Text style={st.compactPack}>
               {packSummary(item)} · {UNIT_LABELS[item.pricingUnit]}
             </Text>
+            {matchLabel && matchTone ? (
+              <MatchBadge label={matchLabel} tone={matchTone} onPress={onPickMatch} />
+            ) : null}
           </View>
           <Ionicons name="chevron-down" size={20} color={colors.textMuted} />
         </View>
@@ -127,12 +163,16 @@ function BulkImportRowItem({
         label="Product Name"
         value={item.name}
         onChangeText={(v) => onUpdateRow(item.key, 'name', v)}
+        onBlur={() => onNameBlur?.(item.key, item.name)}
         placeholder="Product name"
         multiline
         numberOfLines={2}
         textAlignVertical="top"
         style={st.nameInput}
       />
+      {matchLabel && matchTone ? (
+        <MatchBadge label={matchLabel} tone={matchTone} onPress={onPickMatch} />
+      ) : null}
 
       <Text style={st.secLabel}>PACKAGING</Text>
       <View style={st.pkgLabelRow}>
@@ -444,4 +484,19 @@ const st = StyleSheet.create({
     marginBottom: spacing.sm,
     overflow: 'hidden',
   },
+  matchBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  matchAuto: { backgroundColor: '#f0fdf4' },
+  matchReview: { backgroundColor: '#fffbeb' },
+  matchNew: { backgroundColor: colors.primary[50] },
+  matchBadgeText: { fontFamily: font.semiBold, fontSize: 11, color: colors.textMuted },
+  matchBadgeTextAuto: { color: '#15803d' },
 });

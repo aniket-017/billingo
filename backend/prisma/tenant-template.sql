@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   barcode TEXT NOT NULL,
   name TEXT NOT NULL,
+  name_normalized TEXT NOT NULL DEFAULT '',
   price DECIMAL(12, 2) NOT NULL,
   mrp DECIMAL(12, 2),
   selling_price DECIMAL(12, 2),
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS "__SCHEMA__".products (
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_name ON "__SCHEMA__".products (name);
+CREATE INDEX IF NOT EXISTS idx_products_name_normalized ON "__SCHEMA__".products (name_normalized);
 
 CREATE TABLE IF NOT EXISTS "__SCHEMA__".customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

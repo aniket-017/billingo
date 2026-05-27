@@ -15,12 +15,23 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { api, type ParsedInvoiceProduct, type ParsedInvoicePricingUnit } from '@/src/api/client';
+import {
+  api,
+  type ParsedInvoiceProduct,
+  type ParsedInvoicePricingUnit,
+  type ProductMatchPreviewItem,
+} from '@/src/api/client';
 import Button from '@/src/components/Button';
 import BulkImportRowItem, { type EditableRow } from '@/src/components/BulkImportRowItem';
 import Input from '@/src/components/Input';
+import ProductMatchPicker from '@/src/components/ProductMatchPicker';
 import { colors, font, radius, spacing } from '@/src/theme';
-import { countReviewStats, getRowReviewIssues } from '@/src/utils/bulkImportReview';
+import {
+  countReviewStats,
+  getRowReviewIssues,
+  hasUnresolvedMatches,
+  matchSummaryLabel,
+} from '@/src/utils/bulkImportReview';
 import { extractInvoiceOcrText, type InvoiceOcrResult } from '@/src/utils/extractInvoiceOcrText';
 import { formatExpiryDisplay, formatExpiryInput, parseExpiryToIso } from '@/src/utils/expiry';
 
@@ -44,6 +55,32 @@ function inferPricingUnit(category: string): ParsedInvoicePricingUnit {
     return 'box';
   }
   return 'strip';
+}
+
+function applyMatchToRow(row: EditableRow, match: ProductMatchPreviewItem): EditableRow {
+  return {
+    ...row,
+    matchStatus: match.status,
+    matchProductId: match.productId,
+    matchProductName: match.productName,
+    matchScore: match.score,
+    matchCandidates: match.candidates,
+    matchResolved: match.status === 'auto' || match.status === 'new',
+    matchAction:
+      match.status === 'auto' ? 'stock_in' : match.status === 'new' ? 'create' : undefined,
+  };
+}
+
+async function matchRows(rows: EditableRow[]): Promise<EditableRow[]> {
+  if (rows.length === 0) return rows;
+  try {
+    const preview = await api.products.matchPreview(
+      rows.map((r) => ({ name: r.name.trim() || '(unnamed)' }))
+    );
+    return rows.map((row, i) => applyMatchToRow(row, preview.items[i]!));
+  } catch {
+    return rows;
+  }
 }
 
 function mapParsedProduct(p: ParsedInvoiceProduct): EditableRow {
@@ -84,8 +121,13 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   const [rows, setRows] = useState<EditableRow[]>([]);
   const [dealerName, setDealerName] = useState('');
   const [error, setError] = useState('');
-  const [saveResult, setSaveResult] = useState<{ created: number; skipped: number } | null>(null);
+  const [saveResult, setSaveResult] = useState<{
+    stockedIn: number;
+    created: number;
+    skipped: number;
+  } | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [pickerRowKey, setPickerRowKey] = useState<string | null>(null);
 
   const reviewStats = useMemo(() => countReviewStats(rows), [rows]);
 
@@ -127,7 +169,71 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
   }, []);
 
   const updateRow = useCallback((key: string, field: string, value: string | number) => {
-    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, [field]: value };
+        if (field === 'name') {
+          return {
+            ...next,
+            matchStatus: undefined,
+            matchProductId: undefined,
+            matchProductName: undefined,
+            matchScore: undefined,
+            matchCandidates: undefined,
+            matchResolved: undefined,
+            matchAction: undefined,
+          };
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  const rematchRowByName = useCallback(async (key: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      const match = await api.products.matchPreviewOne(trimmed);
+      setRows((prev) => prev.map((r) => (r.key === key ? applyMatchToRow(r, match) : r)));
+    } catch {
+      /* keep row without match metadata */
+    }
+  }, []);
+
+  const resolveMatchStockIn = useCallback((key: string, productId: string, productName: string) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.key === key
+          ? {
+              ...r,
+              matchResolved: true,
+              matchAction: 'stock_in' as const,
+              matchProductId: productId,
+              matchProductName: productName,
+            }
+          : r
+      )
+    );
+    setPickerRowKey(null);
+  }, []);
+
+  const resolveMatchCreateNew = useCallback((key: string) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.key === key
+          ? {
+              ...r,
+              matchResolved: true,
+              matchAction: 'create' as const,
+              matchStatus: 'new' as const,
+              matchProductId: undefined,
+              matchProductName: undefined,
+            }
+          : r
+      )
+    );
+    setPickerRowKey(null);
   }, []);
 
   const updateExpiry = useCallback((key: string, raw: string) => {
@@ -149,7 +255,10 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     });
   }, []);
 
-  function applyParseResult(parseResult: Awaited<ReturnType<typeof api.products.parseInvoice>>, append: boolean) {
+  async function applyParseResult(
+    parseResult: Awaited<ReturnType<typeof api.products.parseInvoice>>,
+    append: boolean
+  ) {
     if (!parseResult.products || parseResult.products.length === 0) {
       setError('No products could be detected. Try a clearer photo or add manually.');
       setStep(append ? 'review' : 'capture');
@@ -161,7 +270,9 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     }
 
     const newRows = parseResult.products.map(mapParsedProduct);
-    setRows((prev) => (append ? [...prev, ...newRows] : newRows));
+    setProcessingStatus('Matching with your catalog...');
+    const matched = await matchRows(newRows);
+    setRows((prev) => (append ? [...prev, ...matched] : matched));
     setExpandedKeys(new Set());
     setStep('review');
   }
@@ -236,29 +347,27 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     ]);
   }
 
-  const addEmptyRow = useCallback(() => {
-    setRows((prev) => [
-      ...prev,
-      {
-        key: nextKey(),
-        name: '',
-        qty: 0,
-        rate: 0,
-        mrp: 0,
-        sellingPrice: 0,
-        batchNo: '',
-        expiry: '',
-        packSize: 1,
-        numBoxes: 1,
-        stripsPerBox: 1,
-        tabletsPerStrip: 1,
-        reorderLevel: 0,
-        pricingUnit: 'strip' as ParsedInvoicePricingUnit,
-        category: 'General',
-        confidence: 'low',
-        packRaw: '',
-      },
-    ]);
+  const addEmptyRow = useCallback(async () => {
+    const row: EditableRow = {
+      key: nextKey(),
+      name: '',
+      qty: 0,
+      rate: 0,
+      mrp: 0,
+      sellingPrice: 0,
+      batchNo: '',
+      expiry: '',
+      packSize: 1,
+      numBoxes: 1,
+      stripsPerBox: 1,
+      tabletsPerStrip: 1,
+      reorderLevel: 0,
+      pricingUnit: 'strip' as ParsedInvoicePricingUnit,
+      category: 'General',
+      confidence: 'low',
+      packRaw: '',
+    };
+    setRows((prev) => [...prev, row]);
   }, []);
 
   function isRowValid(r: EditableRow): boolean {
@@ -272,6 +381,11 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
       return;
     }
 
+    if (hasUnresolvedMatches(valid)) {
+      setError('Resolve all “Pick match” items before importing.');
+      return;
+    }
+
     setStep('saving');
     setError('');
 
@@ -282,8 +396,11 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
         const boxes = Math.max(1, r.numBoxes);
         const strips = Math.max(1, r.stripsPerBox);
         const tabs = Math.max(1, r.tabletsPerStrip);
+        const useStockIn =
+          r.matchAction === 'stock_in' ||
+          (r.matchStatus === 'auto' && r.matchProductId);
 
-        return {
+        const base = {
           name: r.name.trim(),
           price,
           mrp: r.mrp > 0 ? r.mrp : undefined,
@@ -301,10 +418,22 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
           dealerName: dealerName.trim() || undefined,
           category: r.category?.trim() || 'General',
         };
+
+        if (useStockIn && r.matchProductId) {
+          return {
+            ...base,
+            action: 'stock_in' as const,
+            productId: r.matchProductId,
+            notes: 'Stock in (bulk import)',
+          };
+        }
+
+        return { ...base, action: 'create' as const };
       });
 
-      const result = await api.products.bulkCreate(payload);
+      const result = await api.products.bulkImport(payload);
       setSaveResult({
+        stockedIn: result.stockedIn.length,
         created: result.created.length,
         skipped: result.skipped.length,
       });
@@ -316,9 +445,24 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
     }
   }
 
+  const pickerRow = useMemo(
+    () => (pickerRowKey ? rows.find((r) => r.key === pickerRowKey) : null),
+    [pickerRowKey, rows]
+  );
+
   const renderListItem = useCallback(
     ({ item, index }: ListRenderItemInfo<EditableRow>) => {
       const meta = rowMetaByKey.get(item.key) ?? { issues: [], needsReview: false };
+      const matchLabel = matchSummaryLabel(item);
+      const matchTone =
+        item.matchStatus === 'auto' ||
+        (item.matchResolved && item.matchAction === 'stock_in')
+          ? 'auto'
+          : item.matchStatus === 'review' && !item.matchResolved
+            ? 'review'
+            : item.matchStatus === 'new' || item.matchAction === 'create'
+              ? 'new'
+              : undefined;
       return (
         <BulkImportRowItem
           item={item}
@@ -326,15 +470,25 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
           isExpanded={expandedKeysRef.current.has(item.key)}
           issues={meta.issues}
           needsReview={meta.needsReview}
+          matchLabel={matchLabel}
+          matchTone={matchTone}
+          onPickMatch={
+            item.matchStatus === 'review' && !item.matchResolved
+              ? () => setPickerRowKey(item.key)
+              : undefined
+          }
           onToggle={toggleExpanded}
           onRemove={removeRow}
           onUpdateRow={updateRow}
           onUpdateExpiry={updateExpiry}
           onUpdateMrp={updateMrp}
+          onNameBlur={(key: string, name: string) => {
+            void rematchRowByName(key, name);
+          }}
         />
       );
     },
-    [rowMetaByKey, toggleExpanded, removeRow, updateRow, updateExpiry, updateMrp]
+    [rowMetaByKey, toggleExpanded, removeRow, updateRow, updateExpiry, updateMrp, rematchRowByName]
   );
 
   const listHeader = useMemo(
@@ -484,8 +638,14 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
                 <Ionicons name="checkmark-circle" size={64} color={colors.success} />
                 <Text style={st.doneTitle}>Import Complete</Text>
                 <Text style={st.doneDesc}>
-                  {saveResult.created} product{saveResult.created !== 1 ? 's' : ''} imported
-                  {saveResult.skipped > 0 ? ` (${saveResult.skipped} skipped as duplicates)` : ''}
+                  {saveResult.stockedIn > 0
+                    ? `${saveResult.stockedIn} added to existing stock`
+                    : ''}
+                  {saveResult.stockedIn > 0 && saveResult.created > 0 ? ' · ' : ''}
+                  {saveResult.created > 0
+                    ? `${saveResult.created} new product${saveResult.created !== 1 ? 's' : ''}`
+                    : ''}
+                  {saveResult.skipped > 0 ? ` (${saveResult.skipped} skipped)` : ''}
                 </Text>
                 <Button title="Done" onPress={handleClose} style={st.doneBtn} />
               </>
@@ -497,6 +657,15 @@ export default function BulkImportSheet({ visible, onClose, onSaved }: Props) {
             )}
           </View>
         )}
+
+        <ProductMatchPicker
+          visible={pickerRow != null}
+          invoiceName={pickerRow?.name ?? ''}
+          candidates={pickerRow?.matchCandidates ?? []}
+          onSelect={(id, name) => pickerRowKey && resolveMatchStockIn(pickerRowKey, id, name)}
+          onCreateNew={() => pickerRowKey && resolveMatchCreateNew(pickerRowKey)}
+          onClose={() => setPickerRowKey(null)}
+        />
       </View>
     </Modal>
   );

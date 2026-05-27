@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api, type Product } from '@/src/api/client';
+import { api, type Product, type ProductMatchPreviewItem } from '@/src/api/client';
 import Button from '@/src/components/Button';
 import Input from '@/src/components/Input';
 import { useProductNameOcr } from '@/src/hooks/useProductNameOcr';
@@ -109,6 +109,10 @@ export default function AddProductSheet({
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [generatingBarcode, setGeneratingBarcode] = useState(false);
+  const [nameMatch, setNameMatch] = useState<ProductMatchPreviewItem | null>(null);
+  const [forceCreateNew, setForceCreateNew] = useState(false);
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const matchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sheetTitle = title ?? (fromSale ? 'New product from scan' : 'New product');
   const filteredSuggestions = useMemo(() => {
@@ -150,6 +154,9 @@ export default function AddProductSheet({
       setForm(emptyForm);
       setFormError('');
       setSellManuallyEdited(false);
+      setNameMatch(null);
+      setForceCreateNew(false);
+      setSelectedMatchId(null);
       clearError();
       clearWarning();
       return;
@@ -165,6 +172,45 @@ export default function AddProductSheet({
       generateBarcode();
     }
   }, [visible, initialBarcode, initialName, autoGenerateBarcode, initialDealerName]);
+
+  useEffect(() => {
+    if (!visible || forceCreateNew) {
+      if (forceCreateNew) setNameMatch(null);
+      return;
+    }
+    const trimmed = form.name.trim();
+    if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
+    if (trimmed.length < 2) {
+      setNameMatch(null);
+      setSelectedMatchId(null);
+      return;
+    }
+    matchTimerRef.current = setTimeout(async () => {
+      try {
+        const match = await api.products.matchPreviewOne(trimmed);
+        setNameMatch(match);
+        setSelectedMatchId(match.status === 'auto' ? match.productId ?? null : null);
+      } catch {
+        setNameMatch(null);
+        setSelectedMatchId(null);
+      }
+    }, 400);
+    return () => {
+      if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
+    };
+  }, [form.name, visible, forceCreateNew]);
+
+  const stockInTargetId =
+    !forceCreateNew && nameMatch?.status === 'auto'
+      ? nameMatch.productId
+      : !forceCreateNew && nameMatch?.status === 'review' && selectedMatchId
+        ? selectedMatchId
+        : null;
+
+  const showMatchBanner =
+    !forceCreateNew &&
+    nameMatch &&
+    (nameMatch.status === 'auto' || nameMatch.status === 'review');
 
   async function generateBarcode() {
     setGeneratingBarcode(true);
@@ -238,6 +284,26 @@ export default function AddProductSheet({
     setFormError('');
     setSaving(true);
     try {
+      if (stockInTargetId) {
+        const { product } = await api.inventory.stockIn({
+          productId: stockInTargetId,
+          quantity: openingQuantity,
+          notes: 'Stock in (manual add)',
+          costPrice: storedCost || undefined,
+          dealerName: form.dealerName.trim() || undefined,
+          batchNo: form.batchNo.trim() || undefined,
+          expiryDate: parseExpiryToDate(form.expiry.trim()) || undefined,
+          mrp: storedMrp || undefined,
+          sellingPrice: storedSell || undefined,
+          numBoxes,
+          stripsPerBox,
+          tabletsPerStrip,
+        });
+        onSaved?.(product);
+        onClose();
+        return;
+      }
+
       const product = await api.products.create({
         barcode,
         name,
@@ -301,13 +367,49 @@ export default function AddProductSheet({
             <Input
               label="Product Name"
               value={form.name}
-              onChangeText={updateField('name')}
+              onChangeText={(v) => {
+                setForceCreateNew(false);
+                updateField('name')(v);
+              }}
+              onBlur={() => {
+                const trimmed = form.name.trim();
+                if (trimmed.length >= 2 && !forceCreateNew) {
+                  api.products.matchPreviewOne(trimmed).then(setNameMatch).catch(() => setNameMatch(null));
+                }
+              }}
               placeholder="Product name"
               multiline
               numberOfLines={3}
               textAlignVertical="top"
               style={st.nameInput}
             />
+
+            {showMatchBanner ? (
+              <View style={st.matchBanner}>
+                {nameMatch.status === 'auto' && nameMatch.productName ? (
+                  <Text style={st.matchBannerTitle}>
+                    Matches existing: {nameMatch.productName}
+                  </Text>
+                ) : (
+                  <>
+                    <Text style={st.matchBannerTitle}>Similar products found — pick one or create new</Text>
+                    {(nameMatch.candidates ?? []).map((c) => (
+                      <Pressable
+                        key={c.id}
+                        style={[st.matchOption, selectedMatchId === c.id && st.matchOptionActive]}
+                        onPress={() => setSelectedMatchId(c.id)}
+                      >
+                        <Text style={st.matchOptionName}>{c.name}</Text>
+                        <Text style={st.matchOptionScore}>{Math.round(c.score)}% match</Text>
+                      </Pressable>
+                    ))}
+                  </>
+                )}
+                <Pressable onPress={() => { setForceCreateNew(true); setSelectedMatchId(null); }}>
+                  <Text style={st.matchCreateNew}>Create new product anyway</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {/* --- Packaging --- */}
             <Text style={st.secLabel}>PACKAGING</Text>
@@ -419,7 +521,12 @@ export default function AddProductSheet({
 
             {formError ? <Text style={st.formError}>{formError}</Text> : null}
 
-            <Button title={submitLabel} onPress={save} loading={saving} />
+            <Button
+              title={stockInTargetId ? 'Add stock to existing' : submitLabel}
+              onPress={save}
+              loading={saving}
+              disabled={nameMatch?.status === 'review' && !selectedMatchId && !forceCreateNew}
+            />
             <Button title="Cancel" variant="ghost" onPress={onClose} />
           </ScrollView>
         </View>
@@ -473,6 +580,35 @@ const st = StyleSheet.create({
   ocrWarning: { fontFamily: font.regular, fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm },
   ocrError: { fontFamily: font.regular, fontSize: 13, color: colors.danger, marginBottom: spacing.sm },
   nameInput: { minHeight: 72 },
+  matchBanner: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 10,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  matchBannerTitle: { fontFamily: font.semiBold, fontSize: 13, color: '#15803d', marginBottom: spacing.xs },
+  matchOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 8,
+    marginBottom: 4,
+    backgroundColor: colors.white,
+  },
+  matchOptionActive: { borderWidth: 1.5, borderColor: colors.primary[600] },
+  matchOptionName: { fontFamily: font.medium, fontSize: 14, color: colors.text, flex: 1 },
+  matchOptionScore: { fontFamily: font.regular, fontSize: 12, color: colors.textMuted },
+  matchCreateNew: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.primary[600],
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
 
   barcodeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.md },
   barcodeInput: { flex: 1, marginBottom: 0 },

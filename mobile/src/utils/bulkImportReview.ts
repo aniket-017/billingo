@@ -3,9 +3,19 @@ import { isValidExpiryMmYy } from '@/src/utils/expiry';
 
 export type PricingUnit = 'strip' | 'box' | 'tablet';
 
+export type ProductMatchStatus = 'auto' | 'review' | 'new';
+
 export type BulkImportRow = {
   key: string;
   name: string;
+  matchStatus?: ProductMatchStatus;
+  matchProductId?: string;
+  matchProductName?: string;
+  matchScore?: number;
+  matchCandidates?: { id: string; name: string; score: number }[];
+  /** User confirmed stock_in or create for review rows */
+  matchResolved?: boolean;
+  matchAction?: 'stock_in' | 'create';
   qty: number;
   rate: number;
   mrp: number;
@@ -47,7 +57,32 @@ export function getRowReviewIssues(row: BulkImportRow, allRows: BulkImportRow[])
   );
   if (row.name.trim() && dup.length > 0) issues.push('Duplicate name');
 
+  if (row.matchStatus === 'review' && !row.matchResolved) {
+    issues.push('Pick match');
+  }
+
   return issues;
+}
+
+export function matchSummaryLabel(row: BulkImportRow): string | null {
+  if (!row.name.trim()) return null;
+  if (row.matchStatus === 'auto' && row.matchProductName) {
+    return `Stock in → ${row.matchProductName}`;
+  }
+  if (row.matchStatus === 'review' && row.matchResolved && row.matchAction === 'stock_in' && row.matchProductName) {
+    return `Stock in → ${row.matchProductName}`;
+  }
+  if (row.matchStatus === 'review' && !row.matchResolved) {
+    return 'Pick match';
+  }
+  if (row.matchStatus === 'new' || row.matchAction === 'create') {
+    return 'New product';
+  }
+  return null;
+}
+
+export function hasUnresolvedMatches(rows: BulkImportRow[]): boolean {
+  return rows.some((r) => r.matchStatus === 'review' && !r.matchResolved);
 }
 
 export function rowNeedsReview(row: BulkImportRow, allRows: BulkImportRow[]): boolean {

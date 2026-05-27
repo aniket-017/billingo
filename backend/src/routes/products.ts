@@ -12,11 +12,49 @@ import {
   parseInvoiceOcr,
 } from '../services/invoiceParseAi.js';
 import { applyMovement } from '../services/stock.js';
-import { authMiddleware, tenantMiddleware } from '../middleware/auth.js';
-import { getTenantDb } from '../middleware/tenant.js';
+import {
+  previewMatch,
+  previewMatches,
+  validateStockInMatch,
+} from '../services/productMatch.js';
+import { authMiddleware, tenantMiddleware, type AuthPayload } from '../middleware/auth.js';
+import { getTenant, getTenantDb } from '../middleware/tenant.js';
 
 const MAX_OCR_TEXT_LENGTH = 8000;
 const MAX_INVOICE_IMAGE_BYTES = 10 * 1024 * 1024;
+
+function openingMovementExtras(item: {
+  costPrice?: number | string | null;
+  dealerName?: string | null;
+  batchNo?: string | null;
+  expiryDate?: string | null;
+  mrp?: number | string | null;
+  sellingPrice?: number | string | null;
+  numBoxes?: number | null;
+  stripsPerBox?: number | null;
+  tabletsPerStrip?: number | null;
+}) {
+  return {
+    costPrice:
+      item.costPrice != null && item.costPrice !== ''
+        ? Math.max(0, Number(item.costPrice))
+        : undefined,
+    dealerName: item.dealerName != null ? String(item.dealerName).trim() : '',
+    batchNo: item.batchNo != null ? String(item.batchNo).trim() : '',
+    expiryDate: item.expiryDate || null,
+    mrp:
+      item.mrp != null && item.mrp !== '' ? Math.max(0, Number(item.mrp)) : undefined,
+    sellingPrice:
+      item.sellingPrice != null && item.sellingPrice !== ''
+        ? Math.max(0, Number(item.sellingPrice))
+        : undefined,
+    numBoxes: item.numBoxes != null ? Math.max(1, Number(item.numBoxes)) : undefined,
+    stripsPerBox:
+      item.stripsPerBox != null ? Math.max(1, Number(item.stripsPerBox)) : undefined,
+    tabletsPerStrip:
+      item.tabletsPerStrip != null ? Math.max(1, Number(item.tabletsPerStrip)) : undefined,
+  };
+}
 
 const invoiceImageUpload = multer({
   storage: multer.memoryStorage(),
@@ -37,6 +75,74 @@ const invoiceImageUpload = multer({
 const router = Router();
 
 router.use(authMiddleware, tenantMiddleware);
+
+function getUser(req: { user?: AuthPayload }): AuthPayload | undefined {
+  return req.user;
+}
+
+async function generateUniqueBarcode(tenant: ReturnType<typeof getTenantDb>): Promise<string | null> {
+  const prefix = 'BC';
+  for (let attempts = 0; attempts < 10; attempts++) {
+    const barcode =
+      prefix +
+      Date.now().toString(36).toUpperCase() +
+      Math.random().toString(36).slice(2, 6).toUpperCase();
+    const exists = (await tenant.countProductsByBarcode(barcode)) > 0;
+    if (!exists) return barcode;
+  }
+  return null;
+}
+
+type ImportItemBody = {
+  action?: 'stock_in' | 'create';
+  productId?: string;
+  name?: string;
+  price?: number;
+  mrp?: number | string;
+  sellingPrice?: number | string;
+  unit?: string;
+  description?: string;
+  category?: string;
+  batchNo?: string;
+  expiryDate?: string | null;
+  packSize?: number;
+  numBoxes?: number;
+  stripsPerBox?: number;
+  tabletsPerStrip?: number;
+  openingQuantity?: number;
+  reorderLevel?: number;
+  costPrice?: number | string;
+  dealerName?: string;
+  notes?: string;
+};
+
+async function syncProductFieldsFromImport(
+  tenant: ReturnType<typeof getTenantDb>,
+  productId: string,
+  item: ImportItemBody
+) {
+  const updates: Parameters<typeof tenant.updateProduct>[1] = {};
+  if (item.batchNo != null && String(item.batchNo).trim()) {
+    updates.batchNo = String(item.batchNo).trim();
+  }
+  if (item.expiryDate) updates.expiryDate = item.expiryDate;
+  if (item.mrp != null && item.mrp !== '') updates.mrp = Math.max(0, Number(item.mrp));
+  if (item.sellingPrice != null && item.sellingPrice !== '') {
+    updates.sellingPrice = Math.max(0, Number(item.sellingPrice));
+  }
+  if (item.price != null && Number.isFinite(Number(item.price))) {
+    updates.price = Math.max(0, Number(item.price));
+  }
+  if (item.costPrice != null && item.costPrice !== '') {
+    updates.costPrice = Math.max(0, Number(item.costPrice));
+  }
+  if (item.dealerName != null && String(item.dealerName).trim()) {
+    updates.dealerName = String(item.dealerName).trim();
+  }
+  if (Object.keys(updates).length > 0) {
+    await tenant.updateProduct(productId, updates);
+  }
+}
 
 router.get('/', async (req, res) => {
   try {
@@ -213,6 +319,166 @@ router.post('/parse-invoice-image', (req, res, next) => {
   }
 });
 
+router.post('/match-preview', async (req, res) => {
+  try {
+    const raw = req.body?.items;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return res.status(400).json({ error: 'items array is required' });
+    }
+    const names = raw.map((item) =>
+      typeof item?.name === 'string' ? item.name.trim() : ''
+    );
+    const catalog = await getTenantDb(req).listProductsForMatch();
+    const items = previewMatches(names, catalog);
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+router.post('/match-preview-one', async (req, res) => {
+  try {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const catalog = await getTenantDb(req).listProductsForMatch();
+    res.json(previewMatch(name, catalog));
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+router.post('/bulk-import', async (req, res) => {
+  try {
+    const tenant = getTenantDb(req);
+    const raw = req.body?.products;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return res.status(400).json({ error: 'products array is required' });
+    }
+
+    const schemaName = getTenant(req).schemaName;
+    const catalog = await tenant.listProductsForMatch();
+    const user = getUser(req as { user?: AuthPayload });
+
+    const stockedIn: {
+      product: Awaited<ReturnType<typeof tenant.getProduct>>;
+      movement: { id: string };
+      invoiceName: string;
+    }[] = [];
+    const created: NonNullable<Awaited<ReturnType<typeof tenant.getProduct>>>[] = [];
+    const skipped: { name: string; reason: string }[] = [];
+
+    for (const item of raw as ImportItemBody[]) {
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      const price = Number(item.price);
+      const action = item.action === 'stock_in' ? 'stock_in' : 'create';
+      const qty = item.openingQuantity != null ? Math.max(0, Number(item.openingQuantity)) : 0;
+
+      if (!name || !Number.isFinite(price)) {
+        skipped.push({ name: name || '(unnamed)', reason: 'Missing name or price' });
+        continue;
+      }
+
+      if (action === 'stock_in') {
+        const productId = typeof item.productId === 'string' ? item.productId.trim() : '';
+        if (!productId) {
+          skipped.push({ name, reason: 'Missing product for stock in' });
+          continue;
+        }
+        const validation = validateStockInMatch(name, productId, catalog);
+        if (!validation.ok) {
+          skipped.push({ name, reason: validation.reason ?? 'Match validation failed' });
+          continue;
+        }
+        if (qty <= 0) {
+          skipped.push({ name, reason: 'Quantity must be positive for stock in' });
+          continue;
+        }
+        try {
+          const result = await applyMovement(schemaName, {
+            productId,
+            type: 'STOCK_IN',
+            quantity: qty,
+            notes: item.notes?.trim() || 'Stock in (bulk import)',
+            user,
+            ...openingMovementExtras(item),
+          });
+          await syncProductFieldsFromImport(tenant, productId, item);
+          const updated = await tenant.getProduct(productId);
+          stockedIn.push({
+            product: updated ?? result.product,
+            movement: { id: result.movement.id },
+            invoiceName: name,
+          });
+        } catch (e) {
+          skipped.push({ name, reason: (e as Error).message });
+        }
+        continue;
+      }
+
+      let barcode = await generateUniqueBarcode(tenant);
+      if (!barcode) {
+        skipped.push({ name, reason: 'Could not generate unique barcode' });
+        continue;
+      }
+
+      try {
+        const product = await tenant.createProduct({
+          barcode,
+          name,
+          price,
+          mrp: item.mrp != null && item.mrp !== '' ? Math.max(0, Number(item.mrp)) : null,
+          sellingPrice:
+            item.sellingPrice != null && item.sellingPrice !== ''
+              ? Math.max(0, Number(item.sellingPrice))
+              : null,
+          unit: item.unit || 'pcs',
+          description: item.description || '',
+          category: item.category != null ? String(item.category).trim() : '',
+          batchNo: item.batchNo != null ? String(item.batchNo).trim() : '',
+          expiryDate: item.expiryDate || null,
+          packSize: item.packSize != null ? Math.max(1, Number(item.packSize)) : 1,
+          numBoxes: item.numBoxes != null ? Math.max(1, Number(item.numBoxes)) : 1,
+          stripsPerBox: item.stripsPerBox != null ? Math.max(1, Number(item.stripsPerBox)) : 1,
+          tabletsPerStrip:
+            item.tabletsPerStrip != null ? Math.max(1, Number(item.tabletsPerStrip)) : 1,
+          reorderLevel: item.reorderLevel != null ? Math.max(0, Number(item.reorderLevel)) : 0,
+          costPrice:
+            item.costPrice != null && item.costPrice !== ''
+              ? Math.max(0, Number(item.costPrice))
+              : null,
+          dealerName: item.dealerName != null ? String(item.dealerName).trim() : '',
+        });
+
+        if (qty > 0) {
+          await applyMovement(schemaName, {
+            productId: product.id,
+            type: 'OPENING',
+            quantity: qty,
+            notes: 'Opening stock (bulk import)',
+            user,
+            ...openingMovementExtras(item),
+          });
+          const updated = await tenant.getProduct(product.id);
+          created.push(updated ?? product);
+        } else {
+          created.push(product);
+        }
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes('unique') || msg.includes('duplicate')) {
+          skipped.push({ name, reason: 'Barcode already exists' });
+        } else {
+          skipped.push({ name, reason: msg });
+        }
+      }
+    }
+
+    res.status(201).json({ stockedIn, created, skipped });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
 router.post('/bulk-create', async (req, res) => {
   try {
     const tenant = getTenantDb(req);
@@ -287,6 +553,7 @@ router.post('/bulk-create', async (req, res) => {
             type: 'OPENING',
             quantity: opening,
             notes: 'Opening stock (bulk import)',
+            ...openingMovementExtras(item),
           });
           const updated = await tenant.getProduct(product.id);
           created.push(updated ?? product);
@@ -371,6 +638,17 @@ router.post('/', async (req, res) => {
           type: 'OPENING',
           quantity: opening,
           notes: 'Opening stock',
+          ...openingMovementExtras({
+            costPrice,
+            dealerName,
+            batchNo,
+            expiryDate,
+            mrp,
+            sellingPrice,
+            numBoxes,
+            stripsPerBox,
+            tabletsPerStrip,
+          }),
         });
         const updated = await tenant.getProduct(product.id);
         return res.status(201).json(updated);

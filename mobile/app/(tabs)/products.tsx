@@ -217,19 +217,56 @@ export default function ProductsScreen() {
     setMovements([]);
   }
 
+  function prefillMovementEditForm(m: StockMovement, product: Product | null) {
+    let boxes = m.numBoxes ?? 1;
+    let strips = m.stripsPerBox ?? 1;
+    let tabs = m.tabletsPerStrip ?? 1;
+    if (boxes * strips * tabs !== m.quantity && product) {
+      const pb = Math.max(1, product.numBoxes ?? 1);
+      const ps = Math.max(1, product.stripsPerBox ?? 1);
+      const pt = Math.max(1, product.tabletsPerStrip ?? 1);
+      if (pb * ps * pt === m.quantity) {
+        boxes = pb;
+        strips = ps;
+        tabs = pt;
+      }
+    }
+    setEmBoxes(String(boxes));
+    setEmStrips(String(strips));
+    setEmTabs(String(tabs));
+    setEmBatch(m.batchNo?.trim() || product?.batchNo?.trim() || '');
+    setEmExpiry(formatExpiry(m.expiryDate || product?.expiryDate));
+    setEmDealer(m.dealerName?.trim() || product?.dealerName?.trim() || '');
+    setEmCost(
+      m.costPrice != null && m.costPrice > 0
+        ? String(m.costPrice)
+        : product?.costPrice != null && product.costPrice > 0
+          ? String(product.costPrice)
+          : ''
+    );
+    setEmMrp(
+      m.mrp != null && m.mrp > 0
+        ? String(m.mrp)
+        : product?.mrp != null && product.mrp > 0
+          ? String(product.mrp)
+          : ''
+    );
+    setEmSell(
+      m.sellingPrice != null && m.sellingPrice > 0
+        ? String(m.sellingPrice)
+        : product?.sellingPrice != null && product.sellingPrice > 0
+          ? String(product.sellingPrice)
+          : product?.price != null && product.price > 0
+            ? String(product.price)
+            : ''
+    );
+    setEmNotes(m.notes ?? '');
+  }
+
   function openMovementDetail(m: StockMovement) {
     setSelectedMovement(m);
     setEditingMovement(false);
-    setEmBoxes(String(m.numBoxes ?? 1));
-    setEmStrips(String(m.stripsPerBox ?? 1));
-    setEmTabs(String(m.tabletsPerStrip ?? 1));
-    setEmBatch(m.batchNo ?? '');
-    setEmExpiry(formatExpiry(m.expiryDate));
-    setEmDealer(m.dealerName ?? '');
-    setEmCost(m.costPrice ? String(m.costPrice) : '');
-    setEmMrp(m.mrp ? String(m.mrp) : '');
-    setEmSell(m.sellingPrice ? String(m.sellingPrice) : '');
-    setEmNotes(m.notes ?? '');
+    prefillMovementEditForm(m, selected);
   }
 
   async function handleAddStock() {
@@ -563,7 +600,14 @@ export default function ProductsScreen() {
                 </View>
                 <View style={st.movementHeaderRight}>
                   {(selectedMovement.type === 'STOCK_IN' || selectedMovement.type === 'OPENING') && !editingMovement ? (
-                    <Pressable style={st.editBtn} onPress={() => setEditingMovement(true)} hitSlop={8}>
+                    <Pressable
+                      style={st.editBtn}
+                      onPress={() => {
+                        if (selectedMovement) prefillMovementEditForm(selectedMovement, selected);
+                        setEditingMovement(true);
+                      }}
+                      hitSlop={8}
+                    >
                       <Ionicons name="create-outline" size={18} color={colors.primary[600]} />
                     </Pressable>
                   ) : null}

@@ -116,6 +116,35 @@ export type BulkCreateResult = {
   skipped: { name: string; reason: string }[];
 };
 
+export type ProductMatchStatus = 'auto' | 'review' | 'new';
+
+export type ProductMatchCandidate = {
+  id: string;
+  name: string;
+  score: number;
+};
+
+export type ProductMatchPreviewItem = {
+  invoiceName: string;
+  status: ProductMatchStatus;
+  productId?: string;
+  productName?: string;
+  score?: number;
+  candidates?: ProductMatchCandidate[];
+};
+
+export type BulkImportInput = BulkCreateInput & {
+  action: 'stock_in' | 'create';
+  productId?: string;
+  notes?: string;
+};
+
+export type BulkImportResult = {
+  stockedIn: { product: Product; movement: { id: string }; invoiceName: string }[];
+  created: Product[];
+  skipped: { name: string; reason: string }[];
+};
+
 export type StockMovement = {
   id: string;
   productId: { id: string; name: string; barcode: string; unit?: string } | string;
@@ -262,6 +291,21 @@ export const api = {
       uploadInvoiceImage<ParsedInvoiceResult>(imageUri),
     bulkCreate: (products: BulkCreateInput[]) =>
       request<BulkCreateResult>('/products/bulk-create', {
+        method: 'POST',
+        body: JSON.stringify({ products }),
+      }),
+    matchPreview: (items: { name: string }[]) =>
+      request<{ items: ProductMatchPreviewItem[] }>('/products/match-preview', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }),
+    matchPreviewOne: (name: string) =>
+      request<ProductMatchPreviewItem>('/products/match-preview-one', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      }),
+    bulkImport: (products: BulkImportInput[]) =>
+      request<BulkImportResult>('/products/bulk-import', {
         method: 'POST',
         body: JSON.stringify({ products }),
       }),

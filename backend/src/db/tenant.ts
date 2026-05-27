@@ -11,6 +11,8 @@ import type {
   StockMovementType,
   WhatsAppDeliveryStatus,
 } from '../types/tenant.js';
+import { normalizeProductName } from '../services/productMatch.js';
+import type { CatalogProduct } from '../services/productMatch.js';
 
 function toNum(v: unknown): number {
   if (v == null) return 0;
@@ -200,6 +202,28 @@ export class TenantDb {
     return Number(rows[0]?.count ?? 0);
   }
 
+  async listProductsForMatch(): Promise<CatalogProduct[]> {
+    const rows = await prisma.$queryRaw<{ id: string; name: string; name_normalized: string }[]>`
+      SELECT id, name, name_normalized FROM ${Prisma.raw(`${this.s}.products`)}
+    `;
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      nameNormalized: String(r.name_normalized ?? ''),
+    }));
+  }
+
+  async getProductByNameNormalized(key: string): Promise<TenantProduct | null> {
+    if (!key) return null;
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT * FROM ${Prisma.raw(`${this.s}.products`)}
+      WHERE name_normalized = ${key}
+      ORDER BY created_at ASC
+      LIMIT 1
+    `;
+    return rows[0] ? mapProduct(rows[0]) : null;
+  }
+
   async createProduct(data: {
     barcode: string;
     name: string;
@@ -220,12 +244,14 @@ export class TenantDb {
     dealerName?: string;
   }): Promise<TenantProduct> {
     const expiry = data.expiryDate ? new Date(data.expiryDate) : null;
+    const nameNormalized = normalizeProductName(data.name).normalizedKey;
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       INSERT INTO ${Prisma.raw(`${this.s}.products`)}
-        (barcode, name, price, mrp, selling_price, unit, description, category, batch_no, expiry_date, pack_size, num_boxes, strips_per_box, tablets_per_strip, reorder_level, cost_price, dealer_name)
+        (barcode, name, name_normalized, price, mrp, selling_price, unit, description, category, batch_no, expiry_date, pack_size, num_boxes, strips_per_box, tablets_per_strip, reorder_level, cost_price, dealer_name)
       VALUES (
         ${data.barcode},
         ${data.name},
+        ${nameNormalized},
         ${data.price},
         ${data.mrp ?? null},
         ${data.sellingPrice ?? null},
@@ -271,13 +297,16 @@ export class TenantDb {
   ): Promise<TenantProduct | null> {
     const current = await this.getProduct(id);
     if (!current) return null;
+    const nextName = data.name ?? current.name;
+    const nameNormalized = normalizeProductName(nextName).normalizedKey;
     const expiry = data.expiryDate !== undefined
       ? (data.expiryDate ? new Date(data.expiryDate) : null)
       : (current.expiryDate ? new Date(current.expiryDate) : null);
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       UPDATE ${Prisma.raw(`${this.s}.products`)}
       SET barcode = ${data.barcode ?? current.barcode},
-          name = ${data.name ?? current.name},
+          name = ${nextName},
+          name_normalized = ${nameNormalized},
           price = ${data.price ?? current.price},
           mrp = ${data.mrp !== undefined ? data.mrp : current.mrp},
           selling_price = ${data.sellingPrice !== undefined ? data.sellingPrice : current.sellingPrice},
