@@ -310,9 +310,10 @@ async function uploadInvoiceImage<T>(imageUri: string): Promise<T> {
 export const api = {
   products: {
     list: (q?: string) => request<Product[]>(q ? `/products?q=${encodeURIComponent(q)}` : '/products'),
-    listPaged: (q?: string, page = 1, limit = 20) => {
+    listPaged: (q?: string, page = 1, limit = 20, category?: string) => {
       const params = new URLSearchParams();
       if (q?.trim()) params.set('q', q.trim());
+      if (category?.trim()) params.set('category', category.trim());
       params.set('page', String(page));
       params.set('limit', String(limit));
       return request<{ items: Product[]; total: number; page: number; pageSize: number; totalPages: number }>(

@@ -298,46 +298,39 @@ export default function SaleScreen() {
 
           {/* Search input */}
           <View style={styles.searchWrap}>
-            <View style={styles.searchInputRow}>
-              <View style={styles.searchInputContainer}>
-                <Ionicons
-                  name="search-outline"
-                  size={18}
-                  color={colors.textMuted}
-                  style={styles.searchIcon}
-                />
-                <TextInput
-                  value={productQuery}
-                  onChangeText={setProductQuery}
-                  placeholder="Search by name or barcode"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.searchInput}
-                  returnKeyType="go"
-                  onSubmitEditing={handleBarcodeSubmit}
-                  onFocus={() => {
-                    if (productResults.length > 0) setShowProductDropdown(true);
+            <View style={styles.searchInputContainer}>
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={colors.textMuted}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                value={productQuery}
+                onChangeText={setProductQuery}
+                placeholder="Search by name or barcode"
+                placeholderTextColor={colors.textMuted}
+                style={styles.searchInput}
+                returnKeyType="go"
+                onSubmitEditing={handleBarcodeSubmit}
+                onFocus={() => {
+                  if (productResults.length > 0) setShowProductDropdown(true);
+                }}
+              />
+              {productSearching && (
+                <ActivityIndicator size="small" color={colors.primary[500]} style={styles.searchSpinner} />
+              )}
+              {productQuery.length > 0 && !productSearching && (
+                <Pressable
+                  onPress={() => {
+                    setProductQuery('');
+                    setShowProductDropdown(false);
                   }}
-                />
-                {productSearching && (
-                  <ActivityIndicator size="small" color={colors.primary[500]} style={styles.searchSpinner} />
-                )}
-                {productQuery.length > 0 && !productSearching && (
-                  <Pressable
-                    onPress={() => {
-                      setProductQuery('');
-                      setShowProductDropdown(false);
-                    }}
-                    hitSlop={8}
-                    style={styles.searchClear}>
-                    <Ionicons name="close-circle" size={18} color={colors.surface[300]} />
-                  </Pressable>
-                )}
-              </View>
-              <Pressable
-                style={({ pressed }) => [styles.addBarcodeBtn, pressed && { opacity: 0.8 }]}
-                onPress={handleBarcodeSubmit}>
-                <Ionicons name="add" size={22} color={colors.white} />
-              </Pressable>
+                  hitSlop={8}
+                  style={styles.searchClear}>
+                  <Ionicons name="close-circle" size={18} color={colors.surface[300]} />
+                </Pressable>
+              )}
             </View>
 
             {/* Dropdown results */}
@@ -435,27 +428,38 @@ export default function SaleScreen() {
                 />
               </View>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipRow}
-                keyboardShouldPersistTaps="handled">
-                <Pressable
-                  style={[styles.chip, !customerId && styles.chipActive]}
-                  onPress={() => selectCustomer('')}>
-                  <Text style={[styles.chipText, !customerId && styles.chipTextActive]}>Walk-in</Text>
-                </Pressable>
+              <View style={styles.customerResults}>
                 {filteredCustomers.map((c) => (
                   <Pressable
                     key={c.id}
-                    style={[styles.chip, customerId === c.id && styles.chipActive]}
+                    style={({ pressed }) => [
+                      styles.customerResultRow,
+                      pressed && styles.customerResultRowPressed,
+                    ]}
                     onPress={() => selectCustomer(c.id)}>
-                    <Text style={[styles.chipText, customerId === c.id && styles.chipTextActive]}>
-                      {c.name}
-                    </Text>
+                    <View style={styles.customerResultAvatar}>
+                      <Text style={styles.customerResultAvatarText}>
+                        {c.name?.trim()?.charAt(0)?.toUpperCase() || 'C'}
+                      </Text>
+                    </View>
+                    <View style={styles.customerResultBody}>
+                      <Text style={styles.customerResultName} numberOfLines={1}>
+                        {c.name}
+                      </Text>
+                      <Text style={styles.customerResultPhone} numberOfLines={1}>
+                        {c.phone || 'No phone'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.surface[300]} />
                   </Pressable>
                 ))}
-              </ScrollView>
+                {!customerSearch.trim() ? (
+                  <Pressable style={styles.walkInRow} onPress={() => selectCustomer('')}>
+                    <Ionicons name="person-outline" size={16} color={colors.textMuted} />
+                    <Text style={styles.walkInText}>Continue as Walk-in customer</Text>
+                  </Pressable>
+                ) : null}
+              </View>
 
               {customerSearch.trim() && filteredCustomers.length === 0 ? (
                 <Pressable
@@ -618,9 +622,8 @@ const styles = StyleSheet.create({
 
   // Search -- no border, soft fill
   searchWrap: { position: 'relative', zIndex: 10 },
-  searchInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   searchInputContainer: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center',
     backgroundColor: colors.white, borderRadius: radius.md, height: 48,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 1,
   },
@@ -631,12 +634,6 @@ const styles = StyleSheet.create({
   },
   searchSpinner: { marginRight: 12 },
   searchClear: { marginRight: 12 },
-  addBarcodeBtn: {
-    width: 48, height: 48, borderRadius: radius.md,
-    backgroundColor: colors.primary[600], alignItems: 'center', justifyContent: 'center',
-    shadowColor: colors.primary[600], shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 3,
-  },
-
   // Dropdown -- shadow only, no border
   dropdown: {
     marginTop: 6, maxHeight: 240,
@@ -694,15 +691,64 @@ const styles = StyleSheet.create({
     fontSize: 15, fontFamily: font.regular, color: colors.text, height: 44,
   },
 
-  // Chips -- no border, solid fills
-  chipRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: 2 },
-  chip: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: colors.surface[100],
+  customerResults: {
+    marginTop: spacing.xs,
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surface[200],
+    overflow: 'hidden',
   },
-  chipActive: { backgroundColor: colors.primary[600] },
-  chipText: { fontFamily: font.medium, fontSize: 13, color: colors.textMuted },
-  chipTextActive: { color: colors.white },
+  customerResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.surface[200],
+  },
+  customerResultRowPressed: {
+    backgroundColor: colors.surface[50],
+  },
+  customerResultAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.primary[50],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerResultAvatarText: {
+    fontFamily: font.semiBold,
+    fontSize: 13,
+    color: colors.primary[600],
+  },
+  customerResultBody: { flex: 1 },
+  customerResultName: {
+    fontFamily: font.medium,
+    fontSize: 14,
+    color: colors.text,
+  },
+  customerResultPhone: {
+    fontFamily: font.regular,
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  walkInRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface[50],
+  },
+  walkInText: {
+    fontFamily: font.medium,
+    fontSize: 13,
+    color: colors.textMuted,
+  },
 
   noMatchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
   noMatchText: { fontFamily: font.medium, fontSize: 14, color: colors.primary[600], flex: 1 },

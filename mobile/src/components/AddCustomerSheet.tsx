@@ -18,6 +18,7 @@ import Input from '@/src/components/Input';
 import { colors, font, radius, spacing } from '@/src/theme';
 import {
   findCustomerByPhoneInList,
+  normalizeCustomerPhone,
   parsePhoneConflictName,
   validateCustomerPhoneInput,
 } from '@/src/utils/customerPhone';
@@ -44,12 +45,14 @@ export default function AddCustomerSheet({
   const [phoneError, setPhoneError] = useState('');
   const [saving, setSaving] = useState(false);
   const [serverMatch, setServerMatch] = useState<Customer | null>(null);
+  const [phoneSuggestions, setPhoneSuggestions] = useState<Customer[]>([]);
 
   const localMatch = useMemo(
     () => findCustomerByPhoneInList(customers, phone),
     [customers, phone]
   );
   const existingMatch = localMatch ?? serverMatch;
+  const phoneDigits = useMemo(() => phone.replace(/\D/g, ''), [phone]);
 
   useEffect(() => {
     if (!visible) {
@@ -58,6 +61,7 @@ export default function AddCustomerSheet({
       setNameError('');
       setPhoneError('');
       setServerMatch(null);
+      setPhoneSuggestions([]);
       return;
     }
     if (initialName) setName(initialName);
@@ -69,6 +73,7 @@ export default function AddCustomerSheet({
     const t = setTimeout(async () => {
       if (findCustomerByPhoneInList(customers, phone)) {
         setServerMatch(null);
+        setPhoneSuggestions([]);
         return;
       }
       try {
@@ -81,6 +86,39 @@ export default function AddCustomerSheet({
     }, 400);
     return () => clearTimeout(t);
   }, [visible, phone, customers]);
+
+  useEffect(() => {
+    if (!visible || phoneDigits.length < 3) {
+      setPhoneSuggestions([]);
+      return;
+    }
+    const localCandidates = customers
+      .filter((customer) => {
+        const normalized = normalizeCustomerPhone(customer.phone);
+        return !!normalized && normalized.includes(phoneDigits);
+      })
+      .slice(0, 6);
+
+    const seen = new Set(localCandidates.map((customer) => customer.id));
+    setPhoneSuggestions(localCandidates);
+
+    const t = setTimeout(async () => {
+      try {
+        const result = await api.customers.list(phoneDigits);
+        const merged = [...localCandidates];
+        result.items.forEach((customer) => {
+          if (!seen.has(customer.id)) {
+            seen.add(customer.id);
+            merged.push(customer);
+          }
+        });
+        setPhoneSuggestions(merged.slice(0, 6));
+      } catch {
+        setPhoneSuggestions(localCandidates);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [visible, customers, phoneDigits]);
 
   function close() {
     onClose();
@@ -164,6 +202,44 @@ export default function AddCustomerSheet({
             <Text style={styles.subtitle}>They'll be selected for this sale right away.</Text>
 
             <Input
+              label="Phone"
+              value={phone}
+              onChangeText={(v) => {
+                setPhone(v);
+                if (phoneError) setPhoneError('');
+              }}
+              placeholder="10-digit mobile number"
+              keyboardType="phone-pad"
+              autoFocus
+              error={phoneError}
+            />
+            {phoneSuggestions.length > 0 ? (
+              <View style={styles.suggestionWrap}>
+                <Text style={styles.suggestionTitle}>Matching customers</Text>
+                {phoneSuggestions.map((customer, idx) => (
+                  <Pressable
+                    key={customer.id}
+                    style={({ pressed }) => [
+                      styles.suggestionRow,
+                      pressed && styles.suggestionRowPressed,
+                      idx < phoneSuggestions.length - 1 && styles.suggestionRowDivider,
+                    ]}
+                    onPress={() => selectExisting(customer)}>
+                    <View style={styles.suggestionAvatar}>
+                      <Ionicons name="person-outline" size={16} color={colors.primary[600]} />
+                    </View>
+                    <View style={styles.suggestionBody}>
+                      <Text style={styles.suggestionName} numberOfLines={1}>
+                        {customer.name}
+                      </Text>
+                      <Text style={styles.suggestionPhone}>{customer.phone}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.surface[300]} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            <Input
               label="Name"
               value={name}
               onChangeText={(v) => {
@@ -171,19 +247,7 @@ export default function AddCustomerSheet({
                 if (nameError) setNameError('');
               }}
               placeholder="Customer name"
-              autoFocus
               error={nameError}
-            />
-            <Input
-              label="Phone"
-              value={phone}
-              onChangeText={(v) => {
-                setPhone(v);
-                if (phoneError) setPhoneError('');
-              }}
-              placeholder="10-digit mobile (recommended)"
-              keyboardType="phone-pad"
-              error={phoneError}
             />
 
             {existingMatch ? (
@@ -254,6 +318,62 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.xs,
     marginBottom: spacing.md,
+  },
+  suggestionWrap: {
+    borderWidth: 1,
+    borderColor: colors.surface[200],
+    borderRadius: radius.md,
+    backgroundColor: colors.white,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  suggestionTitle: {
+    fontFamily: font.semiBold,
+    fontSize: 12,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    backgroundColor: colors.surface[50],
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    gap: spacing.sm,
+  },
+  suggestionRowPressed: {
+    backgroundColor: colors.surface[50],
+  },
+  suggestionRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.surface[200],
+  },
+  suggestionAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary[50],
+  },
+  suggestionBody: {
+    flex: 1,
+  },
+  suggestionName: {
+    fontFamily: font.semiBold,
+    fontSize: 14,
+    color: colors.text,
+  },
+  suggestionPhone: {
+    fontFamily: font.regular,
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
   },
   matchCard: {
     flexDirection: 'row',

@@ -219,12 +219,15 @@ router.get('/', async (req, res) => {
 router.get('/paged', async (req, res) => {
   try {
     const q = (req.query.q as string) || '';
+    const categoryRaw = (req.query.category as string) || '';
+    const category = categoryRaw.trim() || undefined;
     const page = Number(req.query.page ?? '1');
     const limit = Number(req.query.limit ?? '20');
     const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
     const pageSize = Number.isFinite(limit) && limit > 0 && limit <= 200 ? limit : 20;
     const result = await getTenantDb(req).listProductsPaged({
       q,
+      category,
       page: pageNumber,
       pageSize,
     });

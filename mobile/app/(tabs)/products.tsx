@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -112,6 +113,14 @@ export default function ProductsScreen() {
   const [movementsTotalPages, setMovementsTotalPages] = useState(1);
   const [movementsLoadingMore, setMovementsLoadingMore] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [stockFilter, setStockFilter] = useState<'all' | 'in' | 'low' | 'out'>('all');
+  const [supplierFilter, setSupplierFilter] = useState('All suppliers');
+  const [nearExpiryOnly, setNearExpiryOnly] = useState(false);
+  const [recentFirst, setRecentFirst] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const productsRequestId = useRef(0);
 
   // Movement detail / edit
   const [selectedMovement, setSelectedMovement] = useState<StockMovement | null>(null);
@@ -158,27 +167,81 @@ export default function ProductsScreen() {
       ),
     [products]
   );
+  useEffect(() => {
+    api.products
+      .list()
+      .then((items) => {
+        const categories = [...new Set(items.map((p) => p.category?.trim()).filter(Boolean) as string[])].sort((a, b) =>
+          a.localeCompare(b)
+        );
+        setAllCategories(categories);
+      })
+      .catch(() => setAllCategories([]));
+  }, []);
+  const supplierSuggestions = useMemo(
+    () =>
+      [...new Set(products.map((p) => p.dealerName?.trim()).filter(Boolean) as string[])].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [products]
+  );
+  const categoryOptions = useMemo(() => ['All', ...(allCategories.length > 0 ? allCategories : categorySuggestions)], [allCategories, categorySuggestions]);
+
+  const displayedProducts = useMemo(() => {
+    let next = [...products];
+
+    if (stockFilter !== 'all') {
+      next = next.filter((product) => {
+        const qty = product.quantityOnHand ?? 0;
+        const reorder = product.reorderLevel ?? 0;
+        if (stockFilter === 'out') return qty <= 0;
+        if (stockFilter === 'low') return qty > 0 && reorder > 0 && qty <= reorder;
+        return qty > 0;
+      });
+    }
+    if (nearExpiryOnly) {
+      next = next.filter((product) => isExpiringSoon(product.expiryDate));
+    }
+    if (supplierFilter !== 'All suppliers') {
+      next = next.filter((product) => (product.dealerName?.trim() || '') === supplierFilter);
+    }
+    if (!recentFirst) {
+      next.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return next;
+  }, [products, stockFilter, nearExpiryOnly, supplierFilter, recentFirst]);
 
   const load = useCallback(async (q?: string, page = 1, append = false) => {
+    const requestId = ++productsRequestId.current;
+    const category = selectedCategory === 'All' ? undefined : selectedCategory;
     if (page === 1) setLoading(true);
     else setLoadingMoreProducts(true);
     try {
-      const data = await api.products.listPaged(q || undefined, page, 20);
-      setProducts((prev) => append ? [...prev, ...data.items] : data.items);
-      setProductsPage(data.page);
-      setProductsTotalPages(data.totalPages);
+      const data = await api.products.listPaged(q || undefined, page, 20, category);
+
+      if (requestId === productsRequestId.current) {
+        setProducts((prev) => (append ? [...prev, ...data.items] : data.items));
+        setProductsPage(data.page);
+        setProductsTotalPages(data.totalPages);
+      }
     } catch {
-      if (!append) setProducts([]);
+      if (requestId === productsRequestId.current) {
+        setProducts([]);
+        setProductsPage(1);
+        setProductsTotalPages(1);
+      }
     } finally {
-      setLoading(false);
-      setLoadingMoreProducts(false);
+      if (requestId === productsRequestId.current) {
+        setLoading(false);
+        setLoadingMoreProducts(false);
+      }
     }
-  }, []);
+  }, [selectedCategory]);
 
   useEffect(() => {
     const t = setTimeout(() => load(query, 1), 300);
     return () => clearTimeout(t);
-  }, [query, load]);
+  }, [query, selectedCategory, load]);
 
   function prefillStockForm(p: Product) {
     setSfBoxes(String(p.numBoxes ?? 1));
@@ -361,66 +424,160 @@ export default function ProductsScreen() {
   }
 
   return (
-    <Screen refreshing={loading} onRefresh={() => load(query, 1)}>
-      <View style={st.headerRow}>
-        <Text style={st.title}>Products</Text>
-        <View style={st.headerBtns}>
-          <Button title="Bulk Import" variant="secondary" onPress={() => setBulkImportOpen(true)} style={st.bulkBtn} />
-          <Button title="Add" onPress={() => setModalOpen(true)} style={st.addBtn} />
-        </View>
-      </View>
+    <Screen scroll={false} padded={false}>
+      <FlatList
+        data={displayedProducts}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={st.listContent}
+        stickyHeaderIndices={[0]}
+        refreshing={loading}
+        onRefresh={() => load(query, 1)}
+        renderItem={({ item: p }) => {
+          const status = getStockStatus(p);
+          const sell = effectivePrice(p);
+          const qty = p.quantityOnHand ?? 0;
+          const expirySoon = isExpiringSoon(p.expiryDate);
 
-      <Input
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search by name or barcode"
-        style={st.search}
-      />
-
-      {/* --- Product List --- */}
-      {products.map((p) => {
-        const status = getStockStatus(p);
-        const sell = effectivePrice(p);
-        const qty = p.quantityOnHand ?? 0;
-
-        return (
-          <Pressable key={p.id} onPress={() => openDetail(p)}>
-            <Card style={st.card}>
-              <View style={st.cardRow}>
-                <View style={st.cardLeft}>
-                  <Text style={st.cardName} numberOfLines={1}>{p.name}</Text>
-                  <View style={st.cardMeta}>
-                    <View style={[st.stockDotSmall, { backgroundColor: status.color }]} />
-                    <Text style={[st.cardStock, { color: status.color }]}>{qty}</Text>
+          return (
+            <Pressable key={p.id} onPress={() => openDetail(p)} style={({ pressed }) => [pressed && { opacity: 0.96 }]}>
+              <Card style={st.card}>
+                <View style={st.cardTopRow}>
+                  <Text style={st.cardName} numberOfLines={2}>{p.name}</Text>
+                  <Text style={st.cardPrice}>{formatCurrency(sell)}</Text>
+                </View>
+                <View style={st.cardBottomRow}>
+                  <View style={st.cardTagRow}>
+                    <View style={[st.statusBadge, { backgroundColor: status.bg }]}>
+                      <View style={[st.stockDotSmall, { backgroundColor: status.color }]} />
+                      <Text style={[st.statusBadgeText, { color: status.color }]}>{status.label}</Text>
+                    </View>
                     {p.category ? (
-                      <Text style={st.cardCat} numberOfLines={1}>{p.category}</Text>
+                      <View style={st.categoryBadge}>
+                        <Text style={st.categoryBadgeText}>{p.category}</Text>
+                      </View>
+                    ) : null}
+                    {expirySoon ? (
+                      <View style={st.expiryBadge}>
+                        <Ionicons name="time-outline" size={12} color={AMBER} />
+                        <Text style={st.expiryBadgeText}>Near expiry</Text>
+                      </View>
                     ) : null}
                   </View>
+                  <Text style={st.cardStock}>{qty} units</Text>
                 </View>
-                <Text style={st.cardPrice}>{formatCurrency(sell)}</Text>
+              </Card>
+            </Pressable>
+          );
+        }}
+        ListHeaderComponent={
+          <View style={st.stickyBlock}>
+            <View style={st.headerRow}>
+              <Text style={st.title}>Products</Text>
+            </View>
+            <Input
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search by name or barcode"
+              style={st.search}
+            />
+            <View style={st.filterRow}>
+              <View style={st.filterLeftCluster}>
+                <Pressable
+                  style={({ pressed }) => [st.filterBtn, pressed && { opacity: 0.9 }]}
+                  onPress={() => setFiltersOpen((prev) => !prev)}>
+                  <Ionicons name="options-outline" size={15} color={colors.primary[700]} />
+                  <Text style={st.filterBtnText}>Filters</Text>
+                </Pressable>
+                <Pressable style={({ pressed }) => [st.bulkMiniBtn, pressed && st.btnPressed]} onPress={() => setBulkImportOpen(true)}>
+                  <Ionicons name="cloud-upload-outline" size={13} color={colors.textMuted} />
+                  <Text style={st.bulkMiniBtnText}>Bulk</Text>
+                </Pressable>
+                <Pressable style={({ pressed }) => [st.addMiniBtn, pressed && st.btnPressed]} onPress={() => setModalOpen(true)}>
+                  <Ionicons name="add" size={13} color={colors.white} />
+                  <Text style={st.addMiniBtnText}>Add</Text>
+                </Pressable>
               </View>
-            </Card>
-          </Pressable>
-        );
-      })}
+              <Text style={st.filterHint}>
+                {displayedProducts.length}
+                {productsTotalPages > 1 ? ` shown (page ${productsPage}/${productsTotalPages})` : ' shown'}
+              </Text>
+            </View>
+            {filtersOpen ? (
+              <View style={st.filterPanel}>
+                <Text style={st.filterLabel}>Stock</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.inlineChips}>
+                  {([
+                    ['all', 'All stock'],
+                    ['in', 'In stock'],
+                    ['low', 'Low stock'],
+                    ['out', 'Out of stock'],
+                  ] as const).map(([key, label]) => (
+                    <Pressable key={key} style={[st.chip, stockFilter === key && st.chipActive]} onPress={() => setStockFilter(key)}>
+                      <Text style={[st.chipText, stockFilter === key && st.chipTextActive]}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
 
-      {productsPage < productsTotalPages ? (
-        <Pressable style={st.loadMoreBtn} onPress={() => load(query, productsPage + 1, true)}>
-          {loadingMoreProducts ? (
-            <ActivityIndicator size="small" color={colors.primary[600]} />
-          ) : (
-            <Text style={st.loadMoreText}>Load more products</Text>
-          )}
-        </Pressable>
-      ) : null}
+                <Text style={st.filterLabel}>Supplier</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.inlineChips}>
+                  {['All suppliers', ...supplierSuggestions].map((supplier) => (
+                    <Pressable
+                      key={supplier}
+                      style={[st.chip, supplierFilter === supplier && st.chipActive]}
+                      onPress={() => setSupplierFilter(supplier)}>
+                      <Text style={[st.chipText, supplierFilter === supplier && st.chipTextActive]}>{supplier}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
 
-      {!loading && products.length === 0 ? (
-        <View style={st.emptyWrap}>
-          <Ionicons name="cube-outline" size={48} color={colors.surface[300]} />
-          <Text style={st.emptyText}>No products found</Text>
-          <Text style={st.emptyHint}>Tap "Add" or "Bulk Import" to get started</Text>
-        </View>
-      ) : null}
+                <View style={st.toggleRow}>
+                  <Pressable style={[st.togglePill, nearExpiryOnly && st.togglePillActive]} onPress={() => setNearExpiryOnly((v) => !v)}>
+                    <Ionicons name="time-outline" size={14} color={nearExpiryOnly ? colors.white : AMBER} />
+                    <Text style={[st.toggleText, nearExpiryOnly && st.toggleTextActive]}>Near expiry</Text>
+                  </Pressable>
+                  <Pressable style={[st.togglePill, recentFirst && st.togglePillActive]} onPress={() => setRecentFirst((v) => !v)}>
+                    <Ionicons name="sparkles-outline" size={14} color={recentFirst ? colors.white : colors.primary[600]} />
+                    <Text style={[st.toggleText, recentFirst && st.toggleTextActive]}>Recent first</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.categoryRow}>
+              {categoryOptions.map((category) => (
+                <Pressable
+                  key={category}
+                  style={[st.categoryChip, selectedCategory === category && st.categoryChipActive]}
+                  onPress={() => setSelectedCategory(category)}>
+                  <Text style={[st.categoryChipText, selectedCategory === category && st.categoryChipTextActive]}>
+                    {category}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        }
+        ListFooterComponent={
+          <>
+            {productsPage < productsTotalPages ? (
+              <Pressable style={st.loadMoreBtn} onPress={() => load(query, productsPage + 1, true)}>
+                {loadingMoreProducts ? (
+                  <ActivityIndicator size="small" color={colors.primary[600]} />
+                ) : (
+                  <Text style={st.loadMoreText}>Load more products</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {!loading && displayedProducts.length === 0 ? (
+              <View style={st.emptyWrap}>
+                <Ionicons name="cube-outline" size={48} color={colors.surface[300]} />
+                <Text style={st.emptyText}>No products found</Text>
+                <Text style={st.emptyHint}>Try a different category or filter</Text>
+              </View>
+            ) : null}
+          </>
+        }
+      />
 
       {/* ---- Product Detail Modal ---- */}
       <Modal visible={!!selected} animationType="slide" transparent onRequestClose={closeDetail}>
@@ -836,23 +993,119 @@ function DetailRow({ label, value, valueColor }: { label: string; value: string;
 }
 
 const st = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  listContent: { padding: spacing.md, paddingBottom: spacing.xl },
+  stickyBlock: {
+    backgroundColor: colors.surface[50],
+    paddingBottom: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   title: { fontFamily: font.bold, fontSize: 26, color: colors.text },
-  headerBtns: { flexDirection: 'row', gap: spacing.sm },
-  bulkBtn: { paddingHorizontal: spacing.sm },
-  addBtn: { minWidth: 80, paddingHorizontal: spacing.md },
+  btnPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
   search: { marginBottom: spacing.sm },
+  filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  filterLeftCluster: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1, marginRight: spacing.sm },
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.primary[50],
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+  },
+  filterBtnText: { fontFamily: font.semiBold, fontSize: 12, color: colors.primary[700] },
+  bulkMiniBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.surface[200],
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  bulkMiniBtnText: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  addMiniBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary[600],
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  addMiniBtnText: { fontFamily: font.semiBold, fontSize: 12, color: colors.white },
+  filterHint: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  filterPanel: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surface[200],
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  filterLabel: {
+    fontFamily: font.semiBold,
+    fontSize: 11,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
+    letterSpacing: 0.6,
+  },
+  inlineChips: { gap: spacing.xs, paddingBottom: spacing.xs },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: colors.surface[100],
+  },
+  chipActive: { backgroundColor: colors.primary[600] },
+  chipText: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  chipTextActive: { color: colors.white },
+  toggleRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  togglePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: colors.surface[100],
+  },
+  togglePillActive: { backgroundColor: colors.primary[600] },
+  toggleText: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  toggleTextActive: { color: colors.white },
+  categoryRow: { gap: spacing.xs },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.surface[200],
+  },
+  categoryChipActive: { backgroundColor: colors.primary[600], borderColor: colors.primary[600] },
+  categoryChipText: { fontFamily: font.medium, fontSize: 12, color: colors.textMuted },
+  categoryChipTextActive: { color: colors.white },
 
   // Cards
-  card: { marginBottom: spacing.sm },
-  cardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardLeft: { flex: 1, marginRight: spacing.sm },
-  cardName: { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
-  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  card: { marginBottom: spacing.sm, borderRadius: radius.lg, paddingVertical: spacing.sm },
+  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm },
+  cardBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm },
+  cardTagRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flex: 1, marginRight: spacing.sm, flexWrap: 'wrap' },
+  cardName: { fontFamily: font.semiBold, fontSize: 16, color: colors.text, flex: 1 },
   stockDotSmall: { width: 7, height: 7, borderRadius: 4 },
-  cardStock: { fontFamily: font.semiBold, fontSize: 12 },
-  cardCat: { fontFamily: font.regular, fontSize: 12, color: colors.textMuted },
-  cardPrice: { fontFamily: font.bold, fontSize: 16, color: colors.primary[700] },
+  cardStock: { fontFamily: font.semiBold, fontSize: 13, color: colors.textMuted },
+  cardPrice: { fontFamily: font.bold, fontSize: 20, color: colors.primary[700] },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10 },
+  statusBadgeText: { fontFamily: font.semiBold, fontSize: 11 },
+  categoryBadge: { backgroundColor: colors.surface[100], paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  categoryBadgeText: { fontFamily: font.medium, fontSize: 11, color: colors.textMuted },
+  expiryBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: AMBER_BG, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  expiryBadgeText: { fontFamily: font.medium, fontSize: 11, color: '#b45309' },
 
   // Empty
   emptyWrap: { alignItems: 'center', marginTop: spacing.xl * 2, gap: spacing.sm },

@@ -246,6 +246,7 @@ export class TenantDb {
 
   async listProductsPaged(opts: {
     q?: string;
+    category?: string;
     page: number;
     pageSize: number;
   }): Promise<{ items: TenantProduct[]; total: number }> {
@@ -253,6 +254,9 @@ export class TenantDb {
     if (opts.q?.trim()) {
       const pattern = `%${opts.q.trim()}%`;
       conditions.push(Prisma.sql`(name ILIKE ${pattern} OR barcode ILIKE ${pattern})`);
+    }
+    if (opts.category?.trim()) {
+      conditions.push(Prisma.sql`TRIM(COALESCE(category, '')) ILIKE ${opts.category.trim()}`);
     }
     const where =
       conditions.length > 0
