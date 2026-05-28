@@ -216,6 +216,30 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/paged', async (req, res) => {
+  try {
+    const q = (req.query.q as string) || '';
+    const page = Number(req.query.page ?? '1');
+    const limit = Number(req.query.limit ?? '20');
+    const pageNumber = Number.isFinite(page) && page > 0 ? page : 1;
+    const pageSize = Number.isFinite(limit) && limit > 0 && limit <= 200 ? limit : 20;
+    const result = await getTenantDb(req).listProductsPaged({
+      q,
+      page: pageNumber,
+      pageSize,
+    });
+    res.json({
+      items: result.items,
+      total: result.total,
+      page: pageNumber,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
+    });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
 router.get('/by-barcode/:barcode', async (req, res) => {
   try {
     const product = await getTenantDb(req).getProductByBarcode(req.params.barcode);

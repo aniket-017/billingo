@@ -82,6 +82,9 @@ export default function ProductsScreen() {
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
+  const [productsPage, setProductsPage] = useState(1);
+  const [productsTotalPages, setProductsTotalPages] = useState(1);
   const [selected, setSelected] = useState<Product | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
@@ -156,20 +159,24 @@ export default function ProductsScreen() {
     [products]
   );
 
-  const load = useCallback(async (q?: string) => {
-    setLoading(true);
+  const load = useCallback(async (q?: string, page = 1, append = false) => {
+    if (page === 1) setLoading(true);
+    else setLoadingMoreProducts(true);
     try {
-      const list = await api.products.list(q || undefined);
-      setProducts(list);
+      const data = await api.products.listPaged(q || undefined, page, 20);
+      setProducts((prev) => append ? [...prev, ...data.items] : data.items);
+      setProductsPage(data.page);
+      setProductsTotalPages(data.totalPages);
     } catch {
-      setProducts([]);
+      if (!append) setProducts([]);
     } finally {
       setLoading(false);
+      setLoadingMoreProducts(false);
     }
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(query), 300);
+    const t = setTimeout(() => load(query, 1), 300);
     return () => clearTimeout(t);
   }, [query, load]);
 
@@ -315,7 +322,7 @@ export default function ProductsScreen() {
       setSelected(product);
       setStockFormOpen(false);
       setToast({ message: `Added ${totalQty} units`, type: 'success' });
-      load(query);
+      load(query, 1);
       loadMovements(selected.id);
     } catch (e) {
       setToast({ message: e instanceof Error ? e.message : 'Failed to add stock', type: 'error' });
@@ -345,7 +352,7 @@ export default function ProductsScreen() {
       setEditingMovement(false);
       setToast({ message: 'Movement updated', type: 'success' });
       loadMovements(selected.id);
-      load(query);
+      load(query, 1);
     } catch (e) {
       setToast({ message: e instanceof Error ? e.message : 'Update failed', type: 'error' });
     } finally {
@@ -354,7 +361,7 @@ export default function ProductsScreen() {
   }
 
   return (
-    <Screen refreshing={loading} onRefresh={() => load(query)}>
+    <Screen refreshing={loading} onRefresh={() => load(query, 1)}>
       <View style={st.headerRow}>
         <Text style={st.title}>Products</Text>
         <View style={st.headerBtns}>
@@ -396,6 +403,16 @@ export default function ProductsScreen() {
           </Pressable>
         );
       })}
+
+      {productsPage < productsTotalPages ? (
+        <Pressable style={st.loadMoreBtn} onPress={() => load(query, productsPage + 1, true)}>
+          {loadingMoreProducts ? (
+            <ActivityIndicator size="small" color={colors.primary[600]} />
+          ) : (
+            <Text style={st.loadMoreText}>Load more products</Text>
+          )}
+        </Pressable>
+      ) : null}
 
       {!loading && products.length === 0 ? (
         <View style={st.emptyWrap}>
@@ -780,7 +797,7 @@ export default function ProductsScreen() {
         categorySuggestions={categorySuggestions}
         onSaved={() => {
           setToast({ message: 'Product added', type: 'success' });
-          load(query);
+          load(query, 1);
         }}
       />
 
@@ -789,7 +806,7 @@ export default function ProductsScreen() {
         onClose={() => setBulkImportOpen(false)}
         onSaved={() => {
           setToast({ message: 'Products imported', type: 'success' });
-          load(query);
+          load(query, 1);
         }}
       />
 

@@ -81,6 +81,7 @@ const PAGE_SIZE = 20;
 
 export default function InvoicesScreen() {
   const insets = useSafeAreaInsets();
+  const [mode, setMode] = useState<'stock_out' | 'stock_in'>('stock_out');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -91,6 +92,9 @@ export default function InvoicesScreen() {
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [whatsAppResult, setWhatsAppResult] = useState<string | null>(null);
   const [stockInInvoices, setStockInInvoices] = useState<StockInInvoice[]>([]);
+  const [stockInPage, setStockInPage] = useState(1);
+  const [stockInTotalPages, setStockInTotalPages] = useState(1);
+  const [stockInLoadingMore, setStockInLoadingMore] = useState(false);
   const [selectedStockIn, setSelectedStockIn] = useState<StockInInvoice | null>(null);
 
   const load = useCallback(async (p = 1, append = false) => {
@@ -101,10 +105,6 @@ export default function InvoicesScreen() {
       const to = todayIsoDate();
       const data = await api.invoices.list(from, to, p, PAGE_SIZE);
       setInvoices((prev) => append ? [...prev, ...data.items] : data.items);
-      if (p === 1) {
-        const stockData = await api.invoices.listStockIn(1, 20);
-        setStockInInvoices(stockData.items);
-      }
       setPage(data.page);
       setTotalPages(data.totalPages);
     } catch {
@@ -115,10 +115,27 @@ export default function InvoicesScreen() {
     }
   }, []);
 
+  const loadStockIn = useCallback(async (p = 1, append = false) => {
+    if (p === 1) setLoading(true);
+    else setStockInLoadingMore(true);
+    try {
+      const data = await api.invoices.listStockIn(p, PAGE_SIZE);
+      setStockInInvoices((prev) => append ? [...prev, ...data.items] : data.items);
+      setStockInPage(data.page);
+      setStockInTotalPages(data.totalPages);
+    } catch {
+      if (!append) setStockInInvoices([]);
+    } finally {
+      setLoading(false);
+      setStockInLoadingMore(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       load(1);
-    }, [load])
+      loadStockIn(1);
+    }, [load, loadStockIn])
   );
 
   async function openDetail(inv: Invoice) {
@@ -174,51 +191,82 @@ export default function InvoicesScreen() {
   }
 
   return (
-    <Screen refreshing={loading} onRefresh={() => load(1)}>
+    <Screen
+      refreshing={loading}
+      onRefresh={() => (mode === 'stock_out' ? load(1) : loadStockIn(1))}
+    >
       <Text style={st.title}>Invoices</Text>
       <Text style={st.subtitle}>Last 30 days</Text>
 
-      {invoices.map((inv) => (
-        <Pressable key={inv.id} onPress={() => openDetail(inv)}>
-          <View style={st.card}>
-            <View style={st.rowTop}>
-              <Text style={st.number}>{inv.invoiceNumber}</Text>
-              <Text style={st.total}>{formatCurrency(inv.total)}</Text>
-            </View>
-            <View style={st.rowBottom}>
-              <Text style={st.meta}>
-                {formatDate(inv.date)}
-                {inv.customer?.name ? ` · ${inv.customer.name}` : ''}
-              </Text>
-              {whatsappBadge(inv.whatsappStatus)}
-            </View>
-          </View>
+      <View style={st.modeSwitchWrap}>
+        <Pressable
+          onPress={() => setMode('stock_out')}
+          style={[st.modeBtn, mode === 'stock_out' && st.modeBtnActive]}
+        >
+          <Ionicons
+            name="trending-down-outline"
+            size={16}
+            color={mode === 'stock_out' ? colors.primary[700] : colors.textMuted}
+          />
+          <Text style={[st.modeBtnText, mode === 'stock_out' && st.modeBtnTextActive]}>Stock Out</Text>
         </Pressable>
-      ))}
-
-      {page < totalPages ? (
-        <Pressable style={st.loadMoreBtn} onPress={() => load(page + 1, true)}>
-          {loadingMore ? (
-            <ActivityIndicator size="small" color={colors.primary[600]} />
-          ) : (
-            <Text style={st.loadMoreText}>Load more</Text>
-          )}
+        <Pressable
+          onPress={() => setMode('stock_in')}
+          style={[st.modeBtn, mode === 'stock_in' && st.modeBtnActive]}
+        >
+          <Ionicons
+            name="trending-up-outline"
+            size={16}
+            color={mode === 'stock_in' ? colors.primary[700] : colors.textMuted}
+          />
+          <Text style={[st.modeBtnText, mode === 'stock_in' && st.modeBtnTextActive]}>Stock In</Text>
         </Pressable>
-      ) : null}
+      </View>
 
-      {!loading && invoices.length === 0 ? (
-        <Text style={st.empty}>No invoices in the last 30 days</Text>
-      ) : null}
-
-      {stockInInvoices.length > 0 ? (
+      {mode === 'stock_out' ? (
         <>
-          <Text style={st.sectionTitle}>Stock-In Invoices</Text>
+          {invoices.map((inv) => (
+            <Pressable key={inv.id} onPress={() => openDetail(inv)}>
+              <View style={st.card}>
+                <View style={st.rowTop}>
+                  <Text style={st.number}>{inv.invoiceNumber}</Text>
+                  <Text style={st.total}>{formatCurrency(inv.total)}</Text>
+                </View>
+                <View style={st.rowBottom}>
+                  <Text style={st.meta}>
+                    {formatDate(inv.date)}
+                    {inv.customer?.name ? ` · ${inv.customer.name}` : ''}
+                  </Text>
+                  {whatsappBadge(inv.whatsappStatus)}
+                </View>
+              </View>
+            </Pressable>
+          ))}
+
+          {page < totalPages ? (
+            <Pressable style={st.loadMoreBtn} onPress={() => load(page + 1, true)}>
+              {loadingMore ? (
+                <ActivityIndicator size="small" color={colors.primary[600]} />
+              ) : (
+                <Text style={st.loadMoreText}>Load more</Text>
+              )}
+            </Pressable>
+          ) : null}
+
+          {!loading && invoices.length === 0 ? (
+            <Text style={st.empty}>No stock-out invoices in the last 30 days</Text>
+          ) : null}
+        </>
+      ) : (
+        <>
           {stockInInvoices.map((inv) => (
             <Pressable key={inv.id} onPress={() => openStockInDetail(inv)}>
               <View style={st.card}>
                 <View style={st.rowTop}>
                   <Text style={st.number}>{inv.invoiceNumber || 'Stock-In Invoice'}</Text>
-                  <Text style={st.total}>{formatCurrency(inv.invoiceTotal ?? 0)}</Text>
+                  <Text style={st.total}>
+                    {(inv.invoiceTotal ?? 0) > 0 ? formatCurrency(inv.invoiceTotal as number) : ''}
+                  </Text>
                 </View>
                 <View style={st.rowBottom}>
                   <Text style={st.meta}>
@@ -229,8 +277,22 @@ export default function InvoicesScreen() {
               </View>
             </Pressable>
           ))}
+
+          {stockInPage < stockInTotalPages ? (
+            <Pressable style={st.loadMoreBtn} onPress={() => loadStockIn(stockInPage + 1, true)}>
+              {stockInLoadingMore ? (
+                <ActivityIndicator size="small" color={colors.primary[600]} />
+              ) : (
+                <Text style={st.loadMoreText}>Load more</Text>
+              )}
+            </Pressable>
+          ) : null}
+
+          {!loading && stockInInvoices.length === 0 ? (
+            <Text style={st.empty}>No stock-in invoices found</Text>
+          ) : null}
         </>
-      ) : null}
+      )}
 
       <Modal
         visible={!!selected}
@@ -361,6 +423,31 @@ export default function InvoicesScreen() {
 const st = StyleSheet.create({
   title: { fontFamily: font.bold, fontSize: 26, color: colors.text },
   subtitle: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted, marginBottom: spacing.md },
+  modeSwitchWrap: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface[100],
+    borderRadius: radius.lg,
+    padding: 4,
+    marginBottom: spacing.md,
+    gap: 6,
+  },
+  modeBtn: {
+    flex: 1,
+    borderRadius: radius.md,
+    paddingVertical: 9,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  modeBtnActive: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.primary[100],
+  },
+  modeBtnText: { fontFamily: font.semiBold, fontSize: 13, color: colors.textMuted },
+  modeBtnTextActive: { color: colors.primary[700] },
   sectionTitle: {
     fontFamily: font.bold,
     fontSize: 18,

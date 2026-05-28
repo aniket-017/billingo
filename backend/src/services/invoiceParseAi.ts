@@ -397,7 +397,20 @@ function normalizeInvoiceHeader(raw: unknown): ParsedInvoiceHeader | undefined {
     invoiceNumber: asText(obj.invoiceNumber ?? obj.invoice_number),
     invoiceDate: asText(obj.invoiceDate ?? obj.invoice_date),
     dueDate: asText(obj.dueDate ?? obj.due_date),
-    invoiceTotal: asNum(obj.invoiceTotal ?? obj.invoice_total),
+    invoiceTotal: asNum(
+      obj.invoiceTotal ??
+      obj.invoice_total ??
+      obj.netAmount ??
+      obj.net_amount ??
+      obj.netTotal ??
+      obj.net_total ??
+      obj.grandTotal ??
+      obj.grand_total ??
+      obj.totalAmount ??
+      obj.total_amount ??
+      obj.amountAfterTax ??
+      obj.amount_after_tax
+    ),
     gstTotal: asNum(obj.gstTotal ?? obj.gst_total),
     discount: asNum(obj.discount),
     roundOff: asNum(obj.roundOff ?? obj.round_off),

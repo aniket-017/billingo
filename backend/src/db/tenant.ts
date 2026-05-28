@@ -244,6 +244,38 @@ export class TenantDb {
     return rows.map(mapProduct);
   }
 
+  async listProductsPaged(opts: {
+    q?: string;
+    page: number;
+    pageSize: number;
+  }): Promise<{ items: TenantProduct[]; total: number }> {
+    const conditions: Prisma.Sql[] = [];
+    if (opts.q?.trim()) {
+      const pattern = `%${opts.q.trim()}%`;
+      conditions.push(Prisma.sql`(name ILIKE ${pattern} OR barcode ILIKE ${pattern})`);
+    }
+    const where =
+      conditions.length > 0
+        ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
+        : Prisma.empty;
+
+    const countRows = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*)::bigint AS count
+      FROM ${Prisma.raw(`${this.s}.products`)}
+      ${where}
+    `;
+    const total = Number(countRows[0]?.count ?? 0);
+    const offset = (opts.page - 1) * opts.pageSize;
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT *
+      FROM ${Prisma.raw(`${this.s}.products`)}
+      ${where}
+      ORDER BY created_at DESC
+      LIMIT ${opts.pageSize} OFFSET ${offset}
+    `;
+    return { items: rows.map(mapProduct), total };
+  }
+
   async getProduct(id: string): Promise<TenantProduct | null> {
     const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
       SELECT * FROM ${Prisma.raw(`${this.s}.products`)}
