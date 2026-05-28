@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
-// const BASE = 'https://billingo.plan2automate.com/api';
-const BASE = 'http://10.255.155.117:1975/api';
+const BASE = 'https://billingo.plan2automate.com/api';
+// const BASE = 'http://10.255.155.117:1975/api';
 export const TOKEN_KEY = 'auth_token';
 
 let memoryToken: string | null = null;
