@@ -428,38 +428,34 @@ export default function SaleScreen() {
                 />
               </View>
 
-              <View style={styles.customerResults}>
-                {filteredCustomers.map((c) => (
-                  <Pressable
-                    key={c.id}
-                    style={({ pressed }) => [
-                      styles.customerResultRow,
-                      pressed && styles.customerResultRowPressed,
-                    ]}
-                    onPress={() => selectCustomer(c.id)}>
-                    <View style={styles.customerResultAvatar}>
-                      <Text style={styles.customerResultAvatarText}>
-                        {c.name?.trim()?.charAt(0)?.toUpperCase() || 'C'}
-                      </Text>
-                    </View>
-                    <View style={styles.customerResultBody}>
-                      <Text style={styles.customerResultName} numberOfLines={1}>
-                        {c.name}
-                      </Text>
-                      <Text style={styles.customerResultPhone} numberOfLines={1}>
-                        {c.phone || 'No phone'}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.surface[300]} />
-                  </Pressable>
-                ))}
-                {!customerSearch.trim() ? (
-                  <Pressable style={styles.walkInRow} onPress={() => selectCustomer('')}>
-                    <Ionicons name="person-outline" size={16} color={colors.textMuted} />
-                    <Text style={styles.walkInText}>Continue as Walk-in customer</Text>
-                  </Pressable>
-                ) : null}
-              </View>
+              {customerSearch.trim() ? (
+                <View style={styles.customerResults}>
+                  {filteredCustomers.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      style={({ pressed }) => [
+                        styles.customerResultRow,
+                        pressed && styles.customerResultRowPressed,
+                      ]}
+                      onPress={() => selectCustomer(c.id)}>
+                      <View style={styles.customerResultAvatar}>
+                        <Text style={styles.customerResultAvatarText}>
+                          {c.name?.trim()?.charAt(0)?.toUpperCase() || 'C'}
+                        </Text>
+                      </View>
+                      <View style={styles.customerResultBody}>
+                        <Text style={styles.customerResultName} numberOfLines={1}>
+                          {c.name}
+                        </Text>
+                        <Text style={styles.customerResultPhone} numberOfLines={1}>
+                          {c.phone || 'No phone'}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.surface[300]} />
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
 
               {customerSearch.trim() && filteredCustomers.length === 0 ? (
                 <Pressable

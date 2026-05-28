@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -190,109 +190,114 @@ export default function InvoicesScreen() {
     }
   }
 
+  const listData: Array<Invoice | StockInInvoice> =
+    mode === 'stock_out' ? invoices : stockInInvoices;
+
   return (
-    <Screen
-      refreshing={loading}
-      onRefresh={() => (mode === 'stock_out' ? load(1) : loadStockIn(1))}
-    >
-      <Text style={st.title}>Invoices</Text>
-      <Text style={st.subtitle}>Last 30 days</Text>
+    <Screen scroll={false} padded={false}>
+      <FlatList<Invoice | StockInInvoice>
+        data={listData}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={st.listContent}
+        stickyHeaderIndices={[0]}
+        refreshing={loading}
+        onRefresh={() => (mode === 'stock_out' ? load(1) : loadStockIn(1))}
+        ListHeaderComponent={
+          <View style={st.stickyHeader}>
+            <Text style={st.title}>Invoices</Text>
+            <Text style={st.subtitle}>Last 30 days</Text>
 
-      <View style={st.modeSwitchWrap}>
-        <Pressable
-          onPress={() => setMode('stock_out')}
-          style={[st.modeBtn, mode === 'stock_out' && st.modeBtnActive]}
-        >
-          <Ionicons
-            name="trending-down-outline"
-            size={16}
-            color={mode === 'stock_out' ? colors.primary[700] : colors.textMuted}
-          />
-          <Text style={[st.modeBtnText, mode === 'stock_out' && st.modeBtnTextActive]}>Stock Out</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setMode('stock_in')}
-          style={[st.modeBtn, mode === 'stock_in' && st.modeBtnActive]}
-        >
-          <Ionicons
-            name="trending-up-outline"
-            size={16}
-            color={mode === 'stock_in' ? colors.primary[700] : colors.textMuted}
-          />
-          <Text style={[st.modeBtnText, mode === 'stock_in' && st.modeBtnTextActive]}>Stock In</Text>
-        </Pressable>
-      </View>
-
-      {mode === 'stock_out' ? (
-        <>
-          {invoices.map((inv) => (
-            <Pressable key={inv.id} onPress={() => openDetail(inv)}>
+            <View style={st.modeSwitchWrap}>
+              <Pressable
+                onPress={() => setMode('stock_out')}
+                style={[st.modeBtn, mode === 'stock_out' && st.modeBtnActive]}
+              >
+                <Ionicons
+                  name="trending-down-outline"
+                  size={16}
+                  color={mode === 'stock_out' ? colors.primary[700] : colors.textMuted}
+                />
+                <Text style={[st.modeBtnText, mode === 'stock_out' && st.modeBtnTextActive]}>Stock Out</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setMode('stock_in')}
+                style={[st.modeBtn, mode === 'stock_in' && st.modeBtnActive]}
+              >
+                <Ionicons
+                  name="trending-up-outline"
+                  size={16}
+                  color={mode === 'stock_in' ? colors.primary[700] : colors.textMuted}
+                />
+                <Text style={[st.modeBtnText, mode === 'stock_in' && st.modeBtnTextActive]}>Stock In</Text>
+              </Pressable>
+            </View>
+          </View>
+        }
+        renderItem={({ item }) =>
+          mode === 'stock_out' ? (
+            <Pressable onPress={() => openDetail(item as Invoice)}>
               <View style={st.card}>
                 <View style={st.rowTop}>
-                  <Text style={st.number}>{inv.invoiceNumber}</Text>
-                  <Text style={st.total}>{formatCurrency(inv.total)}</Text>
+                  <Text style={st.number}>{(item as Invoice).invoiceNumber}</Text>
+                  <Text style={st.total}>{formatCurrency((item as Invoice).total)}</Text>
                 </View>
                 <View style={st.rowBottom}>
                   <Text style={st.meta}>
-                    {formatDate(inv.date)}
-                    {inv.customer?.name ? ` · ${inv.customer.name}` : ''}
+                    {formatDate((item as Invoice).date)}
+                    {(item as Invoice).customer?.name ? ` · ${(item as Invoice).customer?.name}` : ''}
                   </Text>
-                  {whatsappBadge(inv.whatsappStatus)}
+                  {whatsappBadge((item as Invoice).whatsappStatus)}
                 </View>
               </View>
             </Pressable>
-          ))}
-
-          {page < totalPages ? (
-            <Pressable style={st.loadMoreBtn} onPress={() => load(page + 1, true)}>
-              {loadingMore ? (
-                <ActivityIndicator size="small" color={colors.primary[600]} />
-              ) : (
-                <Text style={st.loadMoreText}>Load more</Text>
-              )}
-            </Pressable>
-          ) : null}
-
-          {!loading && invoices.length === 0 ? (
-            <Text style={st.empty}>No stock-out invoices in the last 30 days</Text>
-          ) : null}
-        </>
-      ) : (
-        <>
-          {stockInInvoices.map((inv) => (
-            <Pressable key={inv.id} onPress={() => openStockInDetail(inv)}>
+          ) : (
+            <Pressable onPress={() => openStockInDetail(item as StockInInvoice)}>
               <View style={st.card}>
                 <View style={st.rowTop}>
-                  <Text style={st.number}>{inv.invoiceNumber || 'Stock-In Invoice'}</Text>
+                  <Text style={st.number}>{(item as StockInInvoice).invoiceNumber || 'Stock-In Invoice'}</Text>
                   <Text style={st.total}>
-                    {(inv.invoiceTotal ?? 0) > 0 ? formatCurrency(inv.invoiceTotal as number) : ''}
+                    {((item as StockInInvoice).invoiceTotal ?? 0) > 0 ? formatCurrency((item as StockInInvoice).invoiceTotal as number) : ''}
                   </Text>
                 </View>
                 <View style={st.rowBottom}>
                   <Text style={st.meta}>
-                    {inv.invoiceDate ? formatDate(inv.invoiceDate) : 'No date'}
-                    {inv.supplierName ? ` · ${inv.supplierName}` : ''}
+                    {(item as StockInInvoice).invoiceDate ? formatDate((item as StockInInvoice).invoiceDate!) : 'No date'}
+                    {(item as StockInInvoice).supplierName ? ` · ${(item as StockInInvoice).supplierName}` : ''}
                   </Text>
                 </View>
               </View>
             </Pressable>
-          ))}
-
-          {stockInPage < stockInTotalPages ? (
-            <Pressable style={st.loadMoreBtn} onPress={() => loadStockIn(stockInPage + 1, true)}>
-              {stockInLoadingMore ? (
-                <ActivityIndicator size="small" color={colors.primary[600]} />
-              ) : (
-                <Text style={st.loadMoreText}>Load more</Text>
-              )}
-            </Pressable>
-          ) : null}
-
-          {!loading && stockInInvoices.length === 0 ? (
-            <Text style={st.empty}>No stock-in invoices found</Text>
-          ) : null}
-        </>
-      )}
+          )
+        }
+        ListFooterComponent={
+          <>
+            {mode === 'stock_out' && page < totalPages ? (
+              <Pressable style={st.loadMoreBtn} onPress={() => load(page + 1, true)}>
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color={colors.primary[600]} />
+                ) : (
+                  <Text style={st.loadMoreText}>Load more</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {mode === 'stock_in' && stockInPage < stockInTotalPages ? (
+              <Pressable style={st.loadMoreBtn} onPress={() => loadStockIn(stockInPage + 1, true)}>
+                {stockInLoadingMore ? (
+                  <ActivityIndicator size="small" color={colors.primary[600]} />
+                ) : (
+                  <Text style={st.loadMoreText}>Load more</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {!loading && mode === 'stock_out' && invoices.length === 0 ? (
+              <Text style={st.empty}>No stock-out invoices in the last 30 days</Text>
+            ) : null}
+            {!loading && mode === 'stock_in' && stockInInvoices.length === 0 ? (
+              <Text style={st.empty}>No stock-in invoices found</Text>
+            ) : null}
+          </>
+        }
+      />
 
       <Modal
         visible={!!selected}
@@ -421,6 +426,8 @@ export default function InvoicesScreen() {
 }
 
 const st = StyleSheet.create({
+  listContent: { padding: spacing.md, paddingBottom: spacing.xl },
+  stickyHeader: { backgroundColor: colors.surface[50], paddingBottom: spacing.sm, marginBottom: spacing.xs },
   title: { fontFamily: font.bold, fontSize: 26, color: colors.text },
   subtitle: { fontFamily: font.regular, fontSize: 14, color: colors.textMuted, marginBottom: spacing.md },
   modeSwitchWrap: {

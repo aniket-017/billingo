@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -228,46 +229,58 @@ export default function CustomersScreen() {
   }
 
   return (
-    <Screen refreshing={loading} onRefresh={() => load(query, 1)}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Customers</Text>
-        <Button title="Add" onPress={openCreate} style={styles.addBtn} />
-      </View>
-
-      <Input value={query} onChangeText={setQuery} placeholder="Search customers" style={styles.search} />
-
-      {customers.map((c) => (
-        <Pressable key={c.id} onPress={() => openEdit(c)}>
-          <Card style={styles.row}>
-            <View style={styles.customerRow}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{c.name.charAt(0).toUpperCase()}</Text>
-              </View>
-              <View style={styles.customerInfo}>
-                <Text style={styles.name}>{c.name}</Text>
-                <Text style={styles.meta}>
-                  {[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact info'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.surface[300]} />
+    <Screen scroll={false} padded={false}>
+      <FlatList
+        data={customers}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        stickyHeaderIndices={[0]}
+        refreshing={loading}
+        onRefresh={() => load(query, 1)}
+        ListHeaderComponent={
+          <View style={styles.stickyHeader}>
+            <View style={styles.headerRow}>
+              <Text style={styles.title}>Customers</Text>
+              <Button title="Add" onPress={openCreate} style={styles.addBtn} />
             </View>
-          </Card>
-        </Pressable>
-      ))}
-
-      {page < totalPages ? (
-        <Pressable style={styles.loadMoreBtn} onPress={() => load(query, page + 1, true)}>
-          {loadingMore ? (
-            <ActivityIndicator size="small" color={colors.primary[600]} />
-          ) : (
-            <Text style={styles.loadMoreText}>Load more</Text>
-          )}
-        </Pressable>
-      ) : null}
-
-      {!loading && customers.length === 0 ? (
-        <Text style={styles.empty}>No customers found</Text>
-      ) : null}
+            <Input value={query} onChangeText={setQuery} placeholder="Search customers" style={styles.search} />
+          </View>
+        }
+        renderItem={({ item: c }) => (
+          <Pressable onPress={() => openEdit(c)}>
+            <Card style={styles.row}>
+              <View style={styles.customerRow}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{c.name.charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={styles.customerInfo}>
+                  <Text style={styles.name}>{c.name}</Text>
+                  <Text style={styles.meta}>
+                    {[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact info'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.surface[300]} />
+              </View>
+            </Card>
+          </Pressable>
+        )}
+        ListFooterComponent={
+          <>
+            {page < totalPages ? (
+              <Pressable style={styles.loadMoreBtn} onPress={() => load(query, page + 1, true)}>
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color={colors.primary[600]} />
+                ) : (
+                  <Text style={styles.loadMoreText}>Load more</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {!loading && customers.length === 0 ? (
+              <Text style={styles.empty}>No customers found</Text>
+            ) : null}
+          </>
+        }
+      />
 
       {/* ─── Edit / Create Modal ─── */}
       <Modal visible={modalOpen} animationType="slide" transparent onRequestClose={() => setModalOpen(false)}>
@@ -469,6 +482,8 @@ export default function CustomersScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  listContent: { padding: spacing.md, paddingBottom: spacing.xl },
+  stickyHeader: { backgroundColor: colors.surface[50], paddingBottom: spacing.sm, marginBottom: spacing.xs },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   title: { fontFamily: font.bold, fontSize: 26, color: colors.text },
