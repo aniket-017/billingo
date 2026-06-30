@@ -1,5 +1,9 @@
 import { Router } from 'express';
-import { handleWhatsAppWebhookPayload } from '../services/whatsappWebhook.js';
+import {
+  handleWhatsAppWebhookPayload,
+  parseWebhookStatuses,
+} from '../services/whatsappWebhook.js';
+import { logWhatsAppError, logWhatsAppInfo, logWhatsAppWarn } from '../services/whatsappLog.js';
 
 const router = Router();
 
@@ -15,7 +19,7 @@ router.get('/', (req, res) => {
   }
 
   if (!VERIFY_TOKEN || token !== VERIFY_TOKEN) {
-    console.warn('WhatsApp webhook verification failed: token mismatch');
+    logWhatsAppWarn('webhook_verify_failed', { reason: 'token_mismatch' });
     return res.sendStatus(403);
   }
 
@@ -23,7 +27,7 @@ router.get('/', (req, res) => {
     return res.sendStatus(400);
   }
 
-  console.log('WhatsApp webhook verified');
+  logWhatsAppInfo('webhook_verified');
   return res.status(200).send(challenge);
 });
 
@@ -31,12 +35,24 @@ router.post('/', async (req, res) => {
   res.sendStatus(200);
 
   const body = req.body;
-  if (!body || typeof body !== 'object') return;
+  if (!body || typeof body !== 'object') {
+    logWhatsAppWarn('webhook_empty_body');
+    return;
+  }
+
+  const statusUpdates = parseWebhookStatuses(body);
+  logWhatsAppInfo('webhook_post_received', {
+    statusCount: statusUpdates.length,
+    messageIds: statusUpdates.map((u) => u.messageId),
+    statuses: statusUpdates.map((u) => ({ messageId: u.messageId, status: u.status })),
+  });
 
   try {
     await handleWhatsAppWebhookPayload(body);
   } catch (err) {
-    console.error('WhatsApp webhook handler error:', err);
+    logWhatsAppError('webhook_handler_error', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 });
 

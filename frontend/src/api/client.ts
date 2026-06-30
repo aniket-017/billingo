@@ -136,7 +136,15 @@ export const api = {
     lowStock: () => request<(Product & { status: string })[]>('/inventory/low-stock'),
   },
   customers: {
-    list: (q?: string) => request<Customer[]>(q ? `/customers?q=${encodeURIComponent(q)}` : '/customers'),
+    list: (q?: string, page = 1, limit = 100) => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      params.set('page', String(page));
+      params.set('limit', String(limit));
+      return request<{ items: Customer[]; total: number; page: number; pageSize: number; totalPages: number }>(
+        `/customers?${params.toString()}`
+      );
+    },
     get: (id: string) => request<Customer>(`/customers/${id}`),
     create: (body: { name: string; phone?: string; email?: string; address?: string }) =>
       request<Customer>('/customers', { method: 'POST', body: JSON.stringify(body) }),

@@ -86,9 +86,14 @@ export default function Billing() {
   };
 
   const loadCustomers = useCallback(async (query?: string) => {
-    const list = await api.customers.list(query || undefined);
-    setCustomers(list);
-    return list;
+    try {
+      const res = await api.customers.list(query || undefined, 1, 100);
+      setCustomers(res.items);
+      return res.items;
+    } catch (e) {
+      setToast({ message: (e as Error).message || 'Failed to load customers', type: 'error' });
+      return [];
+    }
   }, []);
 
   // Load customer list on mount so it's always available without clicking "Load list"

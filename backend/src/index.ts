@@ -83,6 +83,15 @@ async function start() {
   await seedAdmin();
   app.listen(PORT, () => {
     console.log(`Plan2Automate API running at http://localhost:${PORT}`);
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    console.log(
+      `[whatsapp] Webhook endpoint: POST/GET /webhook/whatsapp` +
+        (verifyToken ? ' (verify token configured)' : ' (WHATSAPP_VERIFY_TOKEN not set)')
+    );
+    console.log(
+      `[whatsapp] Configure Meta callback URL: https://<your-domain>/webhook/whatsapp` +
+        ' — subscribe to "messages" field'
+    );
   });
 }
 

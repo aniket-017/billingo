@@ -17,8 +17,8 @@ export default function Customers() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await api.customers.list(q || undefined);
-      setList(data);
+      const res = await api.customers.list(q || undefined, 1, 100);
+      setList(res.items);
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 import { prisma } from '../db/connect.js';
 import { createTenantDb } from '../db/tenant.js';
 import type { WhatsAppDeliveryStatus } from '../types/tenant.js';
+import { logWhatsAppInfo, logWhatsAppWarn } from './whatsappLog.js';
 
 const STATUS_ORDER: Record<WhatsAppDeliveryStatus, number> = {
   sent: 1,
@@ -44,18 +45,45 @@ export async function applyWhatsAppStatusUpdate(
 ): Promise<boolean> {
   const located = await findInvoiceByWhatsAppMessageId(waMessageId);
   if (!located) {
-    console.warn(`WhatsApp status "${status}" for unknown message id ${waMessageId}`);
+    logWhatsAppWarn('status_unknown_message', { messageId: waMessageId, status });
     return false;
   }
 
   const db = createTenantDb(located.schemaName);
   const invoice = await db.getInvoice(located.invoiceId);
-  if (!invoice) return false;
+  if (!invoice) {
+    logWhatsAppWarn('status_invoice_not_found', {
+      messageId: waMessageId,
+      status,
+      schemaName: located.schemaName,
+      invoiceId: located.invoiceId,
+    });
+    return false;
+  }
+
+  const previousStatus = invoice.whatsappStatus ?? null;
 
   if (!shouldApplyWhatsAppStatus(invoice.whatsappStatus, status)) {
+    logWhatsAppInfo('status_skipped', {
+      messageId: waMessageId,
+      invoiceNumber: invoice.invoiceNumber,
+      previousStatus,
+      incomingStatus: status,
+      reason: 'status_already_ahead_or_failed_locked',
+    });
     return true;
   }
 
   await db.updateInvoiceWhatsApp(located.invoiceId, { status });
+
+  logWhatsAppInfo('status_applied', {
+    messageId: waMessageId,
+    invoiceNumber: invoice.invoiceNumber,
+    schemaName: located.schemaName,
+    customerName: invoice.customer?.name ?? '—',
+    previousStatus,
+    newStatus: status,
+  });
+
   return true;
 }

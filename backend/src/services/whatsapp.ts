@@ -1,4 +1,12 @@
 import { getInvoicePresignedUrl, validateS3Config } from './s3.js';
+import {
+  logWhatsAppError,
+  logWhatsAppInfo,
+  logWhatsAppWarn,
+  maskPhone,
+  parseMetaApiError,
+  truncateUrl,
+} from './whatsappLog.js';
 
 type CustomerForWhatsApp = {
   name?: string;
@@ -37,7 +45,7 @@ function normalizeIndianPhone(raw: string | undefined | null): string | null {
 
 export type SendInvoiceWhatsAppResult =
   | { ok: true; messageId: string }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; detail?: string };
 
 type BusinessDetails = {
   storeName: string;
@@ -49,39 +57,51 @@ export async function sendInvoiceWhatsApp(
   invoice: InvoiceForWhatsApp,
   business: BusinessDetails
 ): Promise<SendInvoiceWhatsAppResult> {
+  const customer = invoice.customer ?? invoice.customerId;
+  const context = {
+    businessId,
+    invoiceNumber: invoice.invoiceNumber,
+    customerName: customer?.name || '—',
+    customerPhone: maskPhone(customer?.phone),
+    template: WHATSAPP_TEMPLATE_NAME,
+  };
+
+  logWhatsAppInfo('send_start', context);
+
   if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
-    console.warn(
-      'WhatsApp config missing (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN); skipping WhatsApp send.'
-    );
+    logWhatsAppWarn('send_skipped', { ...context, reason: 'config_missing' });
     return { ok: false, reason: 'config_missing' };
   }
 
   if (!validateS3Config()) {
-    console.warn(
-      'S3 config missing (AWS_REGION, AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY); skipping WhatsApp send.'
-    );
+    logWhatsAppWarn('send_skipped', { ...context, reason: 's3_config_missing' });
     return { ok: false, reason: 's3_config_missing' };
   }
 
-  const customer = invoice.customer ?? invoice.customerId;
   const customerPhone = customer?.phone;
   const to = normalizeIndianPhone(customerPhone || '');
 
   if (!to) {
-    console.warn(
-      `No valid customer phone for WhatsApp invoice ${invoice.invoiceNumber}; skipping send.`
-    );
+    logWhatsAppWarn('send_skipped', {
+      ...context,
+      reason: 'invalid_phone',
+      rawPhone: customerPhone ?? null,
+    });
     return { ok: false, reason: 'invalid_phone' };
   }
 
   let invoiceLink: string;
   try {
     invoiceLink = await getInvoicePresignedUrl(businessId, invoice.invoiceNumber);
+    logWhatsAppInfo('presign_ok', {
+      ...context,
+      pdfLink: truncateUrl(invoiceLink),
+    });
   } catch (err) {
-    console.error(
-      `Failed to generate presigned URL for invoice ${invoice.invoiceNumber}:`,
-      err
-    );
+    logWhatsAppError('presign_failed', {
+      ...context,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { ok: false, reason: 'presign_failed' };
   }
 
@@ -134,11 +154,19 @@ export async function sendInvoiceWhatsApp(
 
   const fetchFn: typeof fetch | undefined = (globalThis as any).fetch;
   if (!fetchFn) {
-    console.warn('globalThis.fetch is not available; skipping WhatsApp send.');
+    logWhatsAppWarn('send_skipped', { ...context, reason: 'fetch_unavailable' });
     return { ok: false, reason: 'fetch_unavailable' };
   }
 
   const url = `https://graph.facebook.com/v20.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  logWhatsAppInfo('api_request', {
+    ...context,
+    to: maskPhone(to),
+    storeName: business.storeName,
+    shopContact: maskPhone(business.shopContact),
+    pdfLink: truncateUrl(invoiceLink),
+  });
 
   try {
     const res = await fetchFn(url, {
@@ -150,34 +178,60 @@ export async function sendInvoiceWhatsApp(
       body: JSON.stringify(body),
     });
 
+    const responseText = await res.text().catch(() => '');
+
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      console.error(
-        `Failed to send WhatsApp invoice ${invoice.invoiceNumber}:`,
-        res.status,
-        res.statusText,
-        text
-      );
-      return { ok: false, reason: 'api_error' };
+      const metaError = parseMetaApiError(responseText);
+      logWhatsAppError('api_error', {
+        ...context,
+        httpStatus: res.status,
+        httpStatusText: res.statusText,
+        metaError,
+        responseBody: responseText.slice(0, 2000),
+      });
+      const detail =
+        metaError && typeof metaError.message === 'string'
+          ? metaError.message
+          : responseText.slice(0, 500) || undefined;
+      return { ok: false, reason: 'api_error', detail };
     }
 
-    const data = (await res.json().catch(() => null)) as {
-      messages?: { id?: string }[];
-    } | null;
+    let data: { messages?: { id?: string }[]; error?: Record<string, unknown> } | null = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      logWhatsAppError('api_response_invalid_json', {
+        ...context,
+        httpStatus: res.status,
+        responseBody: responseText.slice(0, 2000),
+      });
+      return { ok: false, reason: 'invalid_response' };
+    }
+
     const messageId = data?.messages?.[0]?.id;
     if (!messageId) {
-      console.warn(
-        `WhatsApp API succeeded but no message id for invoice ${invoice.invoiceNumber}`
-      );
+      logWhatsAppWarn('api_no_message_id', {
+        ...context,
+        httpStatus: res.status,
+        responseBody: responseText.slice(0, 2000),
+      });
       return { ok: false, reason: 'no_message_id' };
     }
 
+    logWhatsAppInfo('send_success', {
+      ...context,
+      messageId,
+      httpStatus: res.status,
+      responseBody: responseText.slice(0, 500),
+    });
+
     return { ok: true, messageId };
   } catch (err) {
-    console.error(
-      `Error while calling WhatsApp API for invoice ${invoice.invoiceNumber}:`,
-      err
-    );
+    logWhatsAppError('network_error', {
+      ...context,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return { ok: false, reason: 'network_error' };
   }
 }

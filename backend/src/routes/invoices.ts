@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { generateInvoicePdf } from '../services/invoicePdf.js';
 import { sendInvoiceWhatsApp, type SendInvoiceWhatsAppResult } from '../services/whatsapp.js';
+import { logWhatsAppError, logWhatsAppInfo } from '../services/whatsappLog.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
 import { authMiddleware, AuthPayload, tenantMiddleware } from '../middleware/auth.js';
 import { getTenant, getTenantDb } from '../middleware/tenant.js';
@@ -206,7 +207,11 @@ router.post('/', async (req, res) => {
           })),
         });
       } catch (pdfError) {
-        console.error('Failed to generate invoice PDF', pdfError);
+        logWhatsAppError('pdf_generation_failed', {
+          invoiceNumber: populated.invoiceNumber,
+          businessId,
+          error: pdfError instanceof Error ? pdfError.message : String(pdfError),
+        });
       }
       let whatsappSend: SendInvoiceWhatsAppResult | undefined;
       if (sendWhatsApp) {
@@ -224,9 +229,22 @@ router.post('/', async (req, res) => {
             });
             populated.whatsappMessageId = whatsappSend.messageId;
             populated.whatsappStatus = 'sent';
+            logWhatsAppInfo('invoice_whatsapp_queued', {
+              invoiceNumber: populated.invoiceNumber,
+              messageId: whatsappSend.messageId,
+            });
+          } else {
+            logWhatsAppError('invoice_whatsapp_not_sent', {
+              invoiceNumber: populated.invoiceNumber,
+              reason: whatsappSend.reason,
+              detail: whatsappSend.detail,
+            });
           }
         } catch (waError) {
-          console.error('Failed to send invoice via WhatsApp', waError);
+          logWhatsAppError('invoice_whatsapp_unexpected_error', {
+            invoiceNumber: populated.invoiceNumber,
+            error: waError instanceof Error ? waError.message : String(waError),
+          });
           whatsappSend = { ok: false, reason: 'unexpected_error' };
         }
       }
@@ -260,6 +278,16 @@ router.post('/:id/resend-whatsapp', async (req, res) => {
       await db.updateInvoiceWhatsApp(invoice.id, {
         messageId: result.messageId,
         status: 'sent',
+      });
+      logWhatsAppInfo('resend_whatsapp_queued', {
+        invoiceNumber: invoice.invoiceNumber,
+        messageId: result.messageId,
+      });
+    } else {
+      logWhatsAppError('resend_whatsapp_failed', {
+        invoiceNumber: invoice.invoiceNumber,
+        reason: result.reason,
+        detail: result.detail,
       });
     }
     res.json({ whatsappSend: result });
